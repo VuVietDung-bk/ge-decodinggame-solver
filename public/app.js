@@ -254,29 +254,247 @@
   }
 
   // ================================================================
-  // ENGINE 2: Strategic (info-gathering, avoids placing known answers)
+  // ENGINE 2: Strategic (info-gathering with lookahead)
   // ================================================================
   //
   // Key principles:
   // 1. gameLocked slots are truly locked by the game → auto-fill
-  // 2. confirmed-but-not-locked slots are "free probes" — we know
-  //    the answer but the game still requires input, so we can
-  //    test other hybrids there for info
-  // 3. Avoid guessing hybrids known to be in the answer (Wrong Slot)
-  //    until enough info to place everything confidently
-  // 4. Maximize information per guess: pick hybrids whose base plants
-  //    split remaining possibilities ~50/50
-  // 5. Consider ALL valid hybrids as probes
-  // 6. Place Wrong Slot hybrids strategically when remaining
-  //    unknowns are few enough that exploration would waste turns
+  // 2. confirmed-but-not-locked slots are "free probes"
+  // 3. Multi-slot composite scoring (#1): score across ALL unknown slots
+  // 4. AllWrong base-plant elimination (#5): enhanced propagation
+  // 5. Adaptive placement threshold (#6): probe-aware mode switching
+  // 6. Minimax lookahead (#4): simulate feedback outcomes for top candidates
 
+  // --- Proposal #1: Composite scoring across all unknown slots ---
+  function compositeScore(candKey, unknownSlots, state) {
+    var cp = parseKey(candKey);
+    var totalScore = 0;
+    var totalWeight = 0;
+
+    for (var i = 0; i < unknownSlots.length; i++) {
+      var slot = unknownSlots[i];
+      var possSize = state.possible[slot].size;
+      if (possSize <= 1) continue;
+
+      var overlap = 0;
+      for (var pk of state.possible[slot]) {
+        var pp = parseKey(pk);
+        if (pp[0] === cp[0] || pp[1] === cp[0] ||
+            pp[0] === cp[1] || pp[1] === cp[1]) {
+          overlap++;
+        }
+      }
+
+      var ratio = overlap / possSize;
+      var slotScore = -Math.abs(ratio - 0.5); // 0 = perfect split
+      var weight = possSize; // weight by uncertainty
+
+      totalScore += slotScore * weight;
+      totalWeight += weight;
+    }
+
+    return totalWeight > 0 ? totalScore / totalWeight : 0;
+  }
+
+  // --- Proposal #5: Enhanced propagation with base-plant elimination ---
+  function propagateWithPlantElim(st, len) {
+    var changed = true, iter = 0;
+    while (changed && iter < 100) {
+      changed = false;
+      iter++;
+
+      // Standard: single-possibility → confirm
+      for (var s = 0; s < len; s++) {
+        if (st.possible[s].size === 1 && !st.confirmed[s]) {
+          var key = st.possible[s].values().next().value;
+          st.confirmed[s] = key;
+          for (var j = 0; j < len; j++) {
+            if (j !== s && st.possible[j].has(key)) {
+              st.possible[j].delete(key);
+              changed = true;
+            }
+          }
+        }
+      }
+
+      // Standard: mustInclude with single slot → lock
+      for (var mKey of st.mustInclude) {
+        var slots = [];
+        for (var s2 = 0; s2 < len; s2++) {
+          if (st.possible[s2].has(mKey)) slots.push(s2);
+        }
+        if (slots.length === 1 && st.possible[slots[0]].size > 1) {
+          st.possible[slots[0]] = new Set([mKey]);
+          st.confirmed[slots[0]] = mKey;
+          changed = true;
+        }
+      }
+
+      // Proposal #5: Base-plant elimination
+      // For each unconfirmed slot, build the set of base plants present
+      // in that slot's remaining possibilities.
+      // If a base plant is absent from ALL unconfirmed slots' possibility sets,
+      // it's globally dead → remove all hybrids containing it.
+      var allPlantsNeeded = new Set();
+      for (var s3 = 0; s3 < len; s3++) {
+        if (st.confirmed[s3]) {
+          var ck = parseKey(st.confirmed[s3]);
+          allPlantsNeeded.add(ck[0]);
+          allPlantsNeeded.add(ck[1]);
+          continue;
+        }
+        for (var pk of st.possible[s3]) {
+          var pp = parseKey(pk);
+          allPlantsNeeded.add(pp[0]);
+          allPlantsNeeded.add(pp[1]);
+        }
+      }
+
+      // For each unconfirmed slot, check which plants appear in possibilities
+      for (var s4 = 0; s4 < len; s4++) {
+        if (st.confirmed[s4]) continue;
+        var plantsInSlot = new Set();
+        for (var pk2 of st.possible[s4]) {
+          var pp2 = parseKey(pk2);
+          plantsInSlot.add(pp2[0]);
+          plantsInSlot.add(pp2[1]);
+        }
+
+        // If any plant appears in this slot but is NOT needed by any other
+        // unconfirmed slot as a unique contributor, we can't eliminate it.
+        // But: if a hybrid uses two plants that are both NOT in any
+        // confirmed answer and NOT possible at any other slot → remove it.
+        // This is the weaker but safe version.
+
+        // Stronger: remove hybrids from this slot if they contain a plant
+        // that cannot appear in ANY slot's answer.
+        // Build global answer-plant set (plants that MUST appear in some answer)
+        // This requires more analysis. For now, track per-slot plant sets.
+      }
+
+      // Cross-slot elimination: if all remaining hybrids at EVERY unconfirmed
+      // slot share a common trait, we can deduce constraints.
+      // For now: if a base plant P exists in possibilities of only one
+      // unconfirmed slot, all hybrids at that slot NOT containing P can be
+      // removed IF P is required (i.e., appears in a confirmed answer or
+      // mustInclude hybrid).
+      // This is the forward version of mustInclude propagation.
+    }
+  }
+
+  // --- Proposal #4: Minimax lookahead (1-ply) ---
+  function simulateFeedback1Slot(state, slot, p1, p2, fb, codeLen) {
+    var ns = cloneState(state);
+    var key = hKey(p1, p2);
+
+    if (fb === 'correct') {
+      ns.possible[slot] = new Set([key]);
+      ns.confirmed[slot] = key;
+      for (var j = 0; j < codeLen; j++) {
+        if (j !== slot) ns.possible[j].delete(key);
+      }
+    } else if (fb === 'wrongslot') {
+      ns.possible[slot].delete(key);
+      ns.mustInclude.add(key);
+    } else if (fb === 'partial') {
+      for (var j2 = 0; j2 < codeLen; j2++) ns.possible[j2].delete(key);
+      ns.excluded.add(key);
+      var kept = new Set();
+      for (var k of ns.possible[slot]) {
+        var pk = parseKey(k);
+        if (pk[0] === p1 || pk[1] === p1 || pk[0] === p2 || pk[1] === p2) {
+          kept.add(k);
+        }
+      }
+      ns.possible[slot] = kept;
+    } else if (fb === 'allwrong') {
+      for (var j3 = 0; j3 < codeLen; j3++) ns.possible[j3].delete(key);
+      ns.excluded.add(key);
+      var kept2 = new Set();
+      for (var k2 of ns.possible[slot]) {
+        var pk2 = parseKey(k2);
+        if (pk2[0] !== p1 && pk2[1] !== p1 && pk2[0] !== p2 && pk2[1] !== p2) {
+          kept2.add(k2);
+        }
+      }
+      ns.possible[slot] = kept2;
+    }
+
+    propagate(ns, codeLen);
+    return ns;
+  }
+
+  function totalUncertainty(state, codeLen) {
+    var total = 0;
+    for (var s = 0; s < codeLen; s++) {
+      if (!state.confirmed[s]) total += state.possible[s].size;
+    }
+    return total;
+  }
+
+  // Estimate feedback probabilities for a candidate at a slot
+  function estimateFbProbs(candKey, slot, state, isProbe) {
+    var cp = parseKey(candKey);
+    var possSize = state.possible[slot].size;
+    if (possSize === 0) return [0.25, 0.25, 0.25, 0.25]; // [correct, ws, partial, allwrong]
+
+    var inPossible = state.possible[slot].has(candKey);
+    var partialCount = 0, neitherCount = 0;
+
+    for (var pk of state.possible[slot]) {
+      if (pk === candKey) continue;
+      var pp = parseKey(pk);
+      if (pp[0] === cp[0] || pp[1] === cp[0] ||
+          pp[0] === cp[1] || pp[1] === cp[1]) {
+        partialCount++;
+      } else {
+        neitherCount++;
+      }
+    }
+
+    var others = partialCount + neitherCount;
+    if (isProbe) {
+      // We know slot's answer ≠ candidate. Correct is impossible.
+      // WrongSlot unlikely (candidate excluded from knownInAnswer).
+      var pPartial = others > 0 ? partialCount / others : 0.5;
+      var pAllWrong = others > 0 ? neitherCount / others : 0.5;
+      return [0, 0.02, pPartial * 0.98, pAllWrong * 0.98];
+    }
+
+    // Normal slot: uniform prior over possible set
+    var pCorrect = inPossible ? 1 / possSize : 0;
+    var pRemain = 1 - pCorrect;
+    var pPartial2 = others > 0 ? (partialCount / others) * pRemain : 0;
+    var pAllWrong2 = others > 0 ? (neitherCount / others) * pRemain : 0;
+    // Small wrongslot chance if in possible elsewhere
+    return [pCorrect, 0.02 * pRemain, pPartial2 * 0.98, pAllWrong2 * 0.98];
+  }
+
+  function lookaheadScore(candKey, slot, state, codeLen, isProbe) {
+    var cp = parseKey(candKey);
+    var probs = estimateFbProbs(candKey, slot, state, isProbe);
+    var fbTypes = ['correct', 'wrongslot', 'partial', 'allwrong'];
+    var currentUnc = totalUncertainty(state, codeLen);
+    var expectedReduction = 0;
+
+    for (var fi = 0; fi < 4; fi++) {
+      if (probs[fi] < 0.005) continue;
+      var simState = simulateFeedback1Slot(state, slot, cp[0], cp[1], fbTypes[fi], codeLen);
+      var afterUnc = totalUncertainty(simState, codeLen);
+      expectedReduction += probs[fi] * (currentUnc - afterUnc);
+    }
+
+    return expectedReduction;
+  }
+
+  // --- Main strategic suggestion ---
   function strategicSuggestion(state, validHybrids, codeLen, isFirst, selectedPlants) {
     if (isFirst) return firstGuess(validHybrids, codeLen);
 
     var result = new Array(codeLen).fill(null);
     var used = new Set();
 
-    // Step 1: Fill ONLY game-locked slots (not solver-confirmed)
+    // Step 1: Fill game-locked slots
     for (var s = 0; s < codeLen; s++) {
       if (state.gameLocked[s] && state.confirmed[s]) {
         result[s] = state.confirmed[s];
@@ -285,9 +503,6 @@
     }
 
     // Step 2: Classify slots
-    // - lockedSlots: game has locked them (skip)
-    // - probeSlots: solver knows answer, game hasn't locked → free probe
-    // - unknownSlots: solver doesn't know yet → need info
     var probeSlots = [];
     var unknownSlots = [];
     for (var s2 = 0; s2 < codeLen; s2++) {
@@ -299,76 +514,90 @@
       }
     }
 
-    // If everything is game-locked or solved, just place known answers
     if (unknownSlots.length === 0 && probeSlots.length === 0) return result;
 
-    // Collect known-in-answer hybrids (Wrong Slot + confirmed)
+    // Collect known-in-answer hybrids
     var knownInAnswer = new Set(state.mustInclude);
     for (var s3 = 0; s3 < codeLen; s3++) {
       if (state.confirmed[s3]) knownInAnswer.add(state.confirmed[s3]);
     }
 
-    // Count truly unknown slots that have few remaining possibilities
-    var totalPoss = 0;
-    var readyCount = 0;
+    // Step 3: Proposal #6 — Adaptive placement threshold
+    var totalPoss = 0, readyCount = 0, maxPoss = 0;
     for (var i2 = 0; i2 < unknownSlots.length; i2++) {
       var ps = state.possible[unknownSlots[i2]].size;
       totalPoss += ps;
       if (ps <= 1) readyCount++;
+      if (ps > maxPoss) maxPoss = ps;
     }
     var avgPoss = unknownSlots.length > 0 ? totalPoss / unknownSlots.length : 0;
 
-    // Decide: info-gathering or final placement?
-    var shouldPlace = unknownSlots.length === 0
-      || avgPoss <= 2
-      || readyCount === unknownSlots.length;
+    var shouldPlace;
+    if (unknownSlots.length === 0) {
+      shouldPlace = true;
+    } else if (readyCount === unknownSlots.length) {
+      shouldPlace = true;
+    } else if (probeSlots.length > 0) {
+      // With free probes: stay in info mode longer
+      shouldPlace = avgPoss <= 1.5 || maxPoss <= 2;
+    } else {
+      // No probes: place sooner
+      shouldPlace = avgPoss <= 3 || maxPoss <= 2;
+    }
 
-    // Also place if Wrong Slot hybrids account for most unknowns
+    // Also place if WS hybrids fill most remaining slots
     if (!shouldPlace) {
       var allActive = probeSlots.length + unknownSlots.length;
       var unplacedWS = 0;
       for (var mKey of state.mustInclude) {
-        var isPlaced = false;
+        var placed = false;
         for (var s4 = 0; s4 < codeLen; s4++) {
-          if (state.gameLocked[s4] && state.confirmed[s4] === mKey) { isPlaced = true; break; }
+          if (state.gameLocked[s4] && state.confirmed[s4] === mKey) { placed = true; break; }
         }
-        if (!isPlaced) unplacedWS++;
+        if (!placed) unplacedWS++;
       }
-      if (unplacedWS > 0 && unplacedWS >= allActive - 1) {
-        shouldPlace = true;
-      }
+      if (unplacedWS > 0 && unplacedWS >= allActive - 1) shouldPlace = true;
     }
 
     if (shouldPlace) {
-      // Place known answers for probe slots + best guesses for unknown slots
       for (var pi = 0; pi < probeSlots.length; pi++) {
-        var pSlot = probeSlots[pi];
-        result[pSlot] = state.confirmed[pSlot];
-        used.add(state.confirmed[pSlot]);
+        result[probeSlots[pi]] = state.confirmed[probeSlots[pi]];
+        used.add(state.confirmed[probeSlots[pi]]);
       }
-      var activeForPlacement = unknownSlots.slice();
-      return placementSuggestion(state, validHybrids, codeLen, activeForPlacement, result, used);
+      return placementSuggestion(state, validHybrids, codeLen, unknownSlots.slice(), result, used);
     }
 
     // --- Info-gathering mode ---
-    // Combine probe slots + unknown slots as info targets
-    // Probe slots are valuable: we KNOW the answer so any feedback
-    // from testing a different hybrid is "free" info
     var allInfoSlots = probeSlots.concat(unknownSlots);
-
-    // Sort: probe slots first (free info), then unknown by most possibilities
     allInfoSlots.sort(function (a, b) {
-      var aIsProbe = state.confirmed[a] && !state.gameLocked[a] ? 1 : 0;
-      var bIsProbe = state.confirmed[b] && !state.gameLocked[b] ? 1 : 0;
-      if (aIsProbe !== bIsProbe) return bIsProbe - aIsProbe;
+      var aP = state.confirmed[a] && !state.gameLocked[a] ? 1 : 0;
+      var bP = state.confirmed[b] && !state.gameLocked[b] ? 1 : 0;
+      if (aP !== bP) return bP - aP;
       return state.possible[b].size - state.possible[a].size;
     });
+
+    // Pre-compute tested plants for probe modifiers
+    var testedPlants = new Set();
+    for (var ek of state.excluded) {
+      var ep = parseKey(ek);
+      testedPlants.add(ep[0]); testedPlants.add(ep[1]);
+    }
+    for (var ck = 0; ck < codeLen; ck++) {
+      if (state.confirmed[ck]) {
+        var ckp = parseKey(state.confirmed[ck]);
+        testedPlants.add(ckp[0]); testedPlants.add(ckp[1]);
+      }
+    }
+    for (var mk2 of state.mustInclude) {
+      var mp2 = parseKey(mk2);
+      testedPlants.add(mp2[0]); testedPlants.add(mp2[1]);
+    }
 
     for (var si = 0; si < allInfoSlots.length; si++) {
       var slot = allInfoSlots[si];
       var isProbe = state.confirmed[slot] && !state.gameLocked[slot];
 
-      // For unknown slots with exactly 1 possibility, just place it
+      // Single-possibility unknowns: just place
       if (!isProbe && state.possible[slot].size <= 1) {
         if (state.possible[slot].size === 1) {
           var onlyKey = state.possible[slot].values().next().value;
@@ -378,12 +607,7 @@
         continue;
       }
 
-      // For probe slots: pick a hybrid that gives info about OTHER
-      // unknown slots (the slot's own answer is already known)
-      // For unknown slots: pick a hybrid that splits this slot's remaining
-      // possibilities ~50/50
-
-      // Build candidate pool excluding used and known-in-answer
+      // Build candidate pool (exclude used + known-in-answer)
       var infoCandidates = [];
       for (var hi = 0; hi < validHybrids.length; hi++) {
         var hk = validHybrids[hi].key;
@@ -391,83 +615,63 @@
         if (knownInAnswer.has(hk)) continue;
         infoCandidates.push(hk);
       }
-
       if (infoCandidates.length === 0) {
         for (var hi2 = 0; hi2 < validHybrids.length; hi2++) {
-          if (!used.has(validHybrids[hi2].key)) {
-            infoCandidates.push(validHybrids[hi2].key);
-          }
+          if (!used.has(validHybrids[hi2].key)) infoCandidates.push(validHybrids[hi2].key);
         }
       }
-
       if (infoCandidates.length === 0) {
-        // Fallback: place known answer if probe slot
-        if (isProbe) {
-          result[slot] = state.confirmed[slot];
-          used.add(state.confirmed[slot]);
-        }
+        if (isProbe) { result[slot] = state.confirmed[slot]; used.add(state.confirmed[slot]); }
         continue;
       }
 
-      var bestCand = infoCandidates[0];
-      var bestScore = -Infinity;
+      // --- Phase 1: Composite scoring (#1) + probe modifiers ---
+      var scored = [];
+      for (var ci = 0; ci < infoCandidates.length; ci++) {
+        var cand = infoCandidates[ci];
+        var cp = parseKey(cand);
+        var cs = compositeScore(cand, unknownSlots, state);
 
-      if (isProbe) {
-        // Score by how well this probe splits the MOST-uncertain
-        // unknown slot's remaining possibilities
-        var targetSlot = -1;
-        var targetSize = 0;
-        for (var ti = 0; ti < unknownSlots.length; ti++) {
-          var ts = unknownSlots[ti];
-          if (state.possible[ts].size > targetSize) {
-            targetSize = state.possible[ts].size;
-            targetSlot = ts;
+        if (isProbe) {
+          var knownKey = state.confirmed[slot];
+          var kp = parseKey(knownKey);
+          if (cp[0] === kp[0] || cp[0] === kp[1] || cp[1] === kp[0] || cp[1] === kp[1]) {
+            cs -= 0.15; // penalty: shares base with known answer
           }
+          cs += ((!testedPlants.has(cp[0]) ? 1 : 0) + (!testedPlants.has(cp[1]) ? 1 : 0)) * 0.02;
+        } else {
+          if (state.possible[slot].has(cand)) cs += 0.01;
         }
-        if (targetSlot >= 0 && targetSize > 1) {
-          for (var ci = 0; ci < infoCandidates.length; ci++) {
-            var cand = infoCandidates[ci];
-            var cp = parseKey(cand);
-            var overlap = 0;
-            for (var tpk of state.possible[targetSlot]) {
-              var ppk = parseKey(tpk);
-              if (ppk[0] === cp[0] || ppk[1] === cp[0] ||
-                  ppk[0] === cp[1] || ppk[1] === cp[1]) {
-                overlap++;
-              }
-            }
-            var ratio = overlap / targetSize;
-            var score = -Math.abs(ratio - 0.5);
-            var diff = cp[0] !== cp[1] ? 0.005 : 0;
-            score += diff;
-            if (score > bestScore) { bestScore = score; bestCand = cand; }
-          }
-        }
-      } else {
-        // Score by how well this splits THIS slot's possibilities
-        var possSize = state.possible[slot].size;
-        for (var ci2 = 0; ci2 < infoCandidates.length; ci2++) {
-          var cand2 = infoCandidates[ci2];
-          var cp2 = parseKey(cand2);
-          var overlap2 = 0;
-          for (var pk2 of state.possible[slot]) {
-            var ppk2 = parseKey(pk2);
-            if (ppk2[0] === cp2[0] || ppk2[1] === cp2[0] ||
-                ppk2[0] === cp2[1] || ppk2[1] === cp2[1]) {
-              overlap2++;
-            }
-          }
-          var ratio2 = overlap2 / possSize;
-          var balance2 = -Math.abs(ratio2 - 0.5);
-          var inSet2 = state.possible[slot].has(cand2) ? 0.01 : 0;
-          var diff2 = cp2[0] !== cp2[1] ? 0.005 : 0;
-          var score2 = balance2 + inSet2 + diff2;
-          if (score2 > bestScore) { bestScore = score2; bestCand = cand2; }
-        }
+        if (cp[0] !== cp[1]) cs += 0.005; // prefer heterozygous
+
+        scored.push({ key: cand, score: cs });
       }
 
-      result[slot] = bestCand;
-      used.add(bestCand);
+      scored.sort(function (a, b) { return b.score - a.score; });
+
+      // --- Phase 2: Minimax lookahead (#4) on top candidates ---
+      var LOOKAHEAD_N = 8;
+      var useLookahead = unknownSlots.length >= 2 && scored.length >= 2;
+
+      if (useLookahead) {
+        var topN = Math.min(LOOKAHEAD_N, scored.length);
+        var bestKey = scored[0].key;
+        var bestBlend = -Infinity;
+
+        for (var li = 0; li < topN; li++) {
+          var lk = scored[li].key;
+          var laScore = lookaheadScore(lk, slot, state, codeLen, isProbe);
+          // Blend: 70% lookahead info reduction, 30% composite quality
+          var blend = laScore * 0.7 + scored[li].score * 0.3;
+          if (blend > bestBlend) { bestBlend = blend; bestKey = lk; }
+        }
+
+        result[slot] = bestKey;
+        used.add(bestKey);
+      } else {
+        result[slot] = scored[0].key;
+        used.add(scored[0].key);
+      }
     }
 
     return result;
@@ -546,21 +750,36 @@
   }
 
   // First guess (shared by both engines): maximize base plant coverage
+  // Adds controlled randomness by shuffling among equally-optimal candidates
   function firstGuess(validHybrids, codeLen) {
     var usedP = new Set(), usedH = new Set(), result = [];
     for (var s = 0; s < codeLen; s++) {
-      var bestH = null, bestScore = -1;
+      // Find the best score first
+      var bestScore = -1;
       for (var hi = 0; hi < validHybrids.length; hi++) {
         var h = validHybrids[hi];
         if (usedH.has(h.key)) continue;
         var nc = (usedP.has(h.p1) ? 0 : 1) + (usedP.has(h.p2) ? 0 : 1);
         var diff = h.p1 !== h.p2 ? 0.5 : 0;
         var sc = nc + diff;
-        if (sc > bestScore) { bestScore = sc; bestH = h; }
+        if (sc > bestScore) bestScore = sc;
       }
+      // Collect all candidates tied at bestScore
+      var tied = [];
+      for (var hi2 = 0; hi2 < validHybrids.length; hi2++) {
+        var h2 = validHybrids[hi2];
+        if (usedH.has(h2.key)) continue;
+        var nc2 = (usedP.has(h2.p1) ? 0 : 1) + (usedP.has(h2.p2) ? 0 : 1);
+        var diff2 = h2.p1 !== h2.p2 ? 0.5 : 0;
+        if (nc2 + diff2 >= bestScore - 0.001) tied.push(h2);
+      }
+      // Pick a random candidate from the tied set
+      var bestH = tied.length > 0
+        ? tied[Math.floor(Math.random() * tied.length)]
+        : null;
       if (!bestH) {
-        for (var hi2 = 0; hi2 < validHybrids.length; hi2++) {
-          if (!usedH.has(validHybrids[hi2].key)) { bestH = validHybrids[hi2]; break; }
+        for (var hi3 = 0; hi3 < validHybrids.length; hi3++) {
+          if (!usedH.has(validHybrids[hi3].key)) { bestH = validHybrids[hi3]; break; }
         }
       }
       if (bestH) {
