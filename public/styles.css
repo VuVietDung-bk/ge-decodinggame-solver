@@ -1325,3 +1325,92 @@ select {
     width: 130px;
   }
 }
+
+/* ============================================================
+   UX FEATURES — contradiction diagnosis, explanation panel,
+   undo, share (added in UI layer only)
+   ============================================================ */
+
+/* Contradiction diagnosis banner */
+.warning-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.warning-action {
+  align-self: flex-start;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--allwrong);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: filter var(--transition);
+}
+.warning-action:hover { filter: brightness(1.1); }
+
+/* Explanation panel */
+.explain-block { margin-bottom: 16px; }
+.explain-block:last-child { margin-bottom: 0; }
+.explain-subtitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+.explain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.explain-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.explain-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4; }
+
+/* History per-round undo */
+.history-round-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.history-undo-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 2px 8px;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition);
+}
+.history-round:hover .history-undo-btn { opacity: 1; }
+.history-undo-btn:hover {
+  color: var(--text);
+  border-color: var(--border-hover);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Disabled header buttons (undo when no history) */
+.header-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

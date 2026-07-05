@@ -8,7 +8,7 @@ if (!fs.existsSync(outputDir)) {
 }
 
 // Verify required files exist
-const required = ['index.html', 'app.js', 'styles.css'];
+const required = ['index.html', 'engine.js', 'app.js', 'styles.css'];
 for (const file of required) {
   const filePath = path.join(outputDir, file);
   if (fs.existsSync(filePath)) {

@@ -1,869 +1,114 @@
 (function () {
   'use strict';
 
+  // ============================================================
+  // ENGINE BINDINGS
+  // ------------------------------------------------------------
+  // The solver engine now lives in the standalone `engine.js`
+  // module (exposed as `window.DecodeEngine`). The UI below only
+  // consumes these exported APIs — it contains no solver logic.
+  // ============================================================
+  var Engine = (typeof window !== 'undefined' && window.DecodeEngine) ||
+    (typeof module === 'object' && module.exports ? require('./engine.js') : null);
+
+  // Data / constants
+  var BASE_PLANTS = Engine.BASE_PLANTS;
+  var BASE_SHORT = Engine.BASE_SHORT;
+  var PLANT_COLORS = Engine.PLANT_COLORS;
+  var FEEDBACK_TYPES = Engine.FEEDBACK_TYPES;
+  var ENGINE_HEURISTIC = Engine.ENGINE_HEURISTIC;
+  var ENGINE_STRATEGIC = Engine.ENGINE_STRATEGIC;
+  var ENGINE_OPTIMAL = Engine.ENGINE_OPTIMAL;
+
+  // Pure APIs consumed by the UI
+  var parseKey = Engine.parseKey;
+  var getHybridName = Engine.getHybridName;
+  var getValidHybrids = Engine.getValidHybrids;
+  var buildHybridLookup = Engine.buildHybridLookup;
+  var createSolverState = Engine.createSolverState;
+  var applyFeedback = Engine.applyFeedback;
+  var generateSuggestion = Engine.generateSuggestion;
+  var saveGame = Engine.saveGame;
+  var loadGame = Engine.loadGame;
+  var clearGame = Engine.clearGame;
+
   const e = React.createElement;
   const { useState, useMemo, useCallback, useEffect, useRef, Fragment } = React;
 
   // ============================================================
-  // DATA — Plant combination matrix from Excel
+  // UI HELPERS (engine is never modified — these only replay the
+  // pure engine APIs over the recorded history)
   // ============================================================
 
-  const BASE_PLANTS = [
-    'Peashooter', 'Iceburg', 'Puff', 'Wallnut', 'Sunflower',
-    'Cabbage', 'Potato', 'Spikeweed', 'Torchwood', 'Rotobaga'
-  ];
-
-  const BASE_SHORT = ['Pea', 'Ice', 'Puff', 'Wall', 'Sun', 'Cab', 'Pot', 'Spike', 'Torch', 'Roto'];
-
-  const PLANT_COLORS = [
-    '#4ade80', '#60a5fa', '#c084fc', '#f59e0b', '#fbbf24',
-    '#22c55e', '#d97706', '#94a3b8', '#ef4444', '#e879f9'
-  ];
-
-  // COMBINATIONS[i][j] = hybrid name, null for invalid
-  const COMBINATIONS = [
-    ['Repeater',       'Snow Pea',     'Scaredy Shroom', 'Peanut',        null,              'Sling Pea',       'Dandelion',       'Cactus',      'Fire Pea',      'Skyshooter'],
-    ['Snow Pea',       'Icebloom',     'Ice Shroom',     null,            'Solar Tomato',    'Snowdrop',        'Stallia',         'Iceweed',     'Ghost Pepper',  'Loquat'],
-    ['Scaredy Shroom', 'Ice Shroom',   'Fume Shroom',    'Vamporcini',    'Sun Shroom',      'Spore Shroom',    null,              'Bamboo Shoot','Fire Gourd',    'Gloom Shroom'],
-    ['Peanut',         null,           'Vamporcini',     'Tallnut',       'Sweet Potato',    null,              'Explode O Nut',   'Endurian',    'Hot Date',      'Spinapple'],
-    [null,             'Solar Tomato', 'Sun Shroom',     'Sweet Potato',  'Twin Sunflower',  null,              'Moon Bean',       'Shine Vine',  'Plantern',      'Bulbkekengi'],
-    ['Sling Pea',      'Snowdrop',     'Spore Shroom',   null,            null,              'Melon Pult',      'Stickybomb Rice', null,          'Pepper Pult',   'Apple Mortar'],
-    ['Dandelion',      'Stallia',      null,             'Explode O Nut', 'Moon Bean',       'Stickybomb Rice', 'Primal Mine',     'Lychee',      'Cherry Bomb',   null],
-    ['Cactus',         'Iceweed',      'Bamboo Shoot',   'Endurian',      'Shine Vine',      null,              'Lychee',          'Spikerock',   null,            null],
-    ['Fire Pea',       'Ghost Pepper', 'Fire Gourd',     'Hot Date',      'Plantern',        'Pepper Pult',     'Cherry Bomb',     null,          'Inferno',       null],
-    ['Skyshooter',     'Loquat',       'Gloom Shroom',   'Spinapple',     'Bulbkekengi',     'Apple Mortar',    null,              null,          null,            'Starfruit']
-  ];
-
-  const FEEDBACK_TYPES = [
-    { id: 'correct',   label: 'Correct',    icon: '✓', shortLabel: 'Correct' },
-    { id: 'wrongslot', label: 'Wrong Slot', icon: '↔', shortLabel: 'Slot' },
-    { id: 'partial',   label: 'Partial',    icon: '◐', shortLabel: 'Part' },
-    { id: 'allwrong',  label: 'All Wrong',  icon: '✕', shortLabel: 'Wrong' }
-  ];
-
-  const STORAGE_KEY = 'ge-decode-solver-v1';
-
-  // ============================================================
-  // SOLVER ENGINE
-  // ============================================================
-
-  function hKey(i, j) {
-    return Math.min(i, j) + '_' + Math.max(i, j);
+  // Replay the whole history from a fresh state, returning every
+  // intermediate solver state. states[0] = initial, states[k] = after round k.
+  function replayStates(config, history) {
+    var vh = getValidHybrids(config.selectedPlants);
+    var st = createSolverState(vh, config.codeLength);
+    var states = [st];
+    for (var i = 0; i < history.length; i++) {
+      st = applyFeedback(st, history[i].guess, history[i].feedback);
+      states.push(st);
+    }
+    return { validHybrids: vh, states: states };
   }
 
-  function parseKey(key) {
-    const p = key.split('_');
-    return [parseInt(p[0], 10), parseInt(p[1], 10)];
+  // Rebuild the full `data` object from a (possibly truncated) history.
+  // Used by undo and by shared-link import.
+  function rebuildFromHistory(config, engine, history) {
+    var r = replayStates(config, history);
+    var st = r.states[r.states.length - 1];
+    var sug = generateSuggestion(st, r.validHybrids, config.codeLength, history.length === 0, config.selectedPlants, engine);
+    return { validHybrids: r.validHybrids, solverState: st, history: history, suggestion: sug };
   }
 
-  function getHybridName(i, j) {
-    return COMBINATIONS[i] && COMBINATIONS[i][j] ? COMBINATIONS[i][j] : null;
+  // Find the earliest round whose feedback first made a slot impossible.
+  // Returns { round (1-based), slot } or null.
+  function diagnoseContradiction(config, history) {
+    var r = replayStates(config, history);
+    for (var k = 1; k < r.states.length; k++) {
+      var st = r.states[k];
+      for (var s = 0; s < config.codeLength; s++) {
+        // A slot with zero possibilities is always a contradiction — this
+        // matches the banner's condition (possible.size === 0) exactly.
+        if (st.possible[s].size === 0) {
+          return { round: k, slot: s };
+        }
+      }
+    }
+    return null;
   }
 
-  function getValidHybrids(selectedIndices) {
-    const sorted = selectedIndices.slice().sort((a, b) => a - b);
-    const hybrids = [];
-    for (let a = 0; a < sorted.length; a++) {
-      for (let b = a; b < sorted.length; b++) {
-        const i = sorted[a], j = sorted[b];
-        const name = COMBINATIONS[i][j];
-        if (name) {
-          hybrids.push({ key: hKey(i, j), p1: i, p2: j, name: name });
-        }
-      }
-    }
-    return hybrids;
+  // ---- Shareable state: config + engine + history, URL-safe base64 ----
+  function b64urlEncode(str) {
+    var b = btoa(unescape(encodeURIComponent(str)));
+    return b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
-
-  function createSolverState(validHybrids, codeLen) {
-    var all = new Set(validHybrids.map(function (h) { return h.key; }));
-    return {
-      possible: Array.from({ length: codeLen }, function () { return new Set(all); }),
-      mustInclude: new Set(),
-      excluded: new Set(),
-      confirmed: new Array(codeLen).fill(null),
-      gameLocked: new Array(codeLen).fill(false)
-    };
+  function b64urlDecode(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return decodeURIComponent(escape(atob(s)));
   }
-
-  function cloneState(st) {
-    return {
-      possible: st.possible.map(function (s) { return new Set(s); }),
-      mustInclude: new Set(st.mustInclude),
-      excluded: new Set(st.excluded),
-      confirmed: st.confirmed.slice(),
-      gameLocked: st.gameLocked.slice()
-    };
+  function encodeShare(config, engine, history) {
+    return b64urlEncode(JSON.stringify({ v: 1, config: config, engine: engine, history: history }));
   }
-
-  function applyFeedback(state, guess, feedback) {
-    const ns = cloneState(state);
-    const len = guess.length;
-
-    for (let s = 0; s < len; s++) {
-      const p1 = guess[s].p1, p2 = guess[s].p2;
-      const key = hKey(p1, p2);
-      const fb = feedback[s];
-
-      if (fb === 'correct') {
-        ns.possible[s] = new Set([key]);
-        ns.confirmed[s] = key;
-        ns.gameLocked[s] = true;
-        for (var j = 0; j < len; j++) {
-          if (j !== s) ns.possible[j].delete(key);
-        }
-      } else if (fb === 'wrongslot') {
-        ns.possible[s].delete(key);
-        ns.mustInclude.add(key);
-      } else if (fb === 'partial') {
-        // Hybrid H not in answer at all (Wrong Slot would have fired otherwise)
-        for (let j = 0; j < len; j++) ns.possible[j].delete(key);
-        ns.excluded.add(key);
-        // One of p1, p2 is in correct pair for slot s
-        const kept = new Set();
-        for (const k of ns.possible[s]) {
-          const pk = parseKey(k);
-          if (pk[0] === p1 || pk[1] === p1 || pk[0] === p2 || pk[1] === p2) {
-            kept.add(k);
-          }
-        }
-        ns.possible[s] = kept;
-      } else if (fb === 'allwrong') {
-        // Hybrid H not in answer at all
-        for (let j = 0; j < len; j++) ns.possible[j].delete(key);
-        ns.excluded.add(key);
-        // Neither p1 nor p2 in correct pair for slot s
-        const kept2 = new Set();
-        for (const k of ns.possible[s]) {
-          const pk = parseKey(k);
-          if (pk[0] !== p1 && pk[1] !== p1 && pk[0] !== p2 && pk[1] !== p2) {
-            kept2.add(k);
-          }
-        }
-        ns.possible[s] = kept2;
-      }
-    }
-
-    propagate(ns, len);
-    return ns;
+  function buildShareUrl(config, engine, history) {
+    var base = location.origin + location.pathname;
+    return base + '#g=' + encodeShare(config, engine, history);
   }
-
-  function propagate(st, len) {
-    let changed = true, iter = 0;
-    while (changed && iter < 100) {
-      changed = false;
-      iter++;
-
-      for (let s = 0; s < len; s++) {
-        if (st.possible[s].size === 1 && !st.confirmed[s]) {
-          const key = st.possible[s].values().next().value;
-          st.confirmed[s] = key;
-          for (let j = 0; j < len; j++) {
-            if (j !== s && st.possible[j].has(key)) {
-              st.possible[j].delete(key);
-              changed = true;
-            }
-          }
-        }
-      }
-
-      for (const mKey of st.mustInclude) {
-        const slots = [];
-        for (let s = 0; s < len; s++) {
-          if (st.possible[s].has(mKey)) slots.push(s);
-        }
-        if (slots.length === 1 && st.possible[slots[0]].size > 1) {
-          st.possible[slots[0]] = new Set([mKey]);
-          st.confirmed[slots[0]] = mKey;
-          changed = true;
-        }
-      }
-    }
-  }
-
-  // ---- Suggestion generation ----
-
-  // Engine names for UI
-  var ENGINE_HEURISTIC = 'heuristic';
-  var ENGINE_STRATEGIC = 'strategic';
-
-  function generateSuggestion(state, validHybrids, codeLen, isFirst, selectedPlants, engine) {
-    if (engine === ENGINE_STRATEGIC) {
-      return strategicSuggestion(state, validHybrids, codeLen, isFirst, selectedPlants);
-    }
-    return heuristicSuggestion(state, validHybrids, codeLen, isFirst, selectedPlants);
-  }
-
-  // ================================================================
-  // ENGINE 1: Original Heuristic (greedy, placement-focused)
-  // ================================================================
-
-  function heuristicSuggestion(state, validHybrids, codeLen, isFirst, selectedPlants) {
-    if (isFirst) return firstGuess(validHybrids, codeLen);
-
-    var result = new Array(codeLen).fill(null);
-    var used = new Set();
-
-    // Only skip game-locked slots (not just solver-confirmed)
-    for (var s = 0; s < codeLen; s++) {
-      if (state.gameLocked[s] && state.confirmed[s]) {
-        result[s] = state.confirmed[s];
-        used.add(state.confirmed[s]);
-      }
-    }
-
-    var unc = [];
-    for (var s2 = 0; s2 < codeLen; s2++) {
-      if (!result[s2]) unc.push(s2);
-    }
-    unc.sort(function (a, b) { return state.possible[a].size - state.possible[b].size; });
-
-    for (var u = 0; u < unc.length; u++) {
-      var slot = unc[u];
-      var candidates = [];
-      for (var k of state.possible[slot]) {
-        if (!used.has(k)) candidates.push(k);
-      }
-      if (!candidates.length) candidates = Array.from(state.possible[slot]);
-      if (!candidates.length) {
-        for (var h of validHybrids) {
-          if (!used.has(h.key)) { candidates.push(h.key); break; }
-        }
-      }
-
-      var best = candidates[0] || null;
-      if (candidates.length > 1 && state.possible[slot].size > 1) {
-        var bestBal = Infinity;
-        for (var ci = 0; ci < candidates.length; ci++) {
-          var cand = candidates[ci];
-          var cp = parseKey(cand);
-          var shared = 0, total = state.possible[slot].size;
-          for (var other of state.possible[slot]) {
-            if (other === cand) continue;
-            var op = parseKey(other);
-            if (op[0] === cp[0] || op[1] === cp[0] || op[0] === cp[1] || op[1] === cp[1]) shared++;
-          }
-          var bal = total > 1 ? Math.abs(shared / (total - 1) - 0.5) : 0;
-          if (bal < bestBal) { bestBal = bal; best = cand; }
-        }
-      }
-      result[slot] = best;
-      if (best) used.add(best);
-    }
-    return result;
-  }
-
-  // ================================================================
-  // ENGINE 2: Strategic (info-gathering with lookahead)
-  // ================================================================
-  //
-  // Key principles:
-  // 1. gameLocked slots are truly locked by the game → auto-fill
-  // 2. confirmed-but-not-locked slots are "free probes"
-  // 3. Multi-slot composite scoring (#1): score across ALL unknown slots
-  // 4. AllWrong base-plant elimination (#5): enhanced propagation
-  // 5. Adaptive placement threshold (#6): probe-aware mode switching
-  // 6. Minimax lookahead (#4): simulate feedback outcomes for top candidates
-
-  // --- Proposal #1: Composite scoring across all unknown slots ---
-  function compositeScore(candKey, unknownSlots, state) {
-    var cp = parseKey(candKey);
-    var totalScore = 0;
-    var totalWeight = 0;
-
-    for (var i = 0; i < unknownSlots.length; i++) {
-      var slot = unknownSlots[i];
-      var possSize = state.possible[slot].size;
-      if (possSize <= 1) continue;
-
-      var overlap = 0;
-      for (var pk of state.possible[slot]) {
-        var pp = parseKey(pk);
-        if (pp[0] === cp[0] || pp[1] === cp[0] ||
-            pp[0] === cp[1] || pp[1] === cp[1]) {
-          overlap++;
-        }
-      }
-
-      var ratio = overlap / possSize;
-      var slotScore = -Math.abs(ratio - 0.5); // 0 = perfect split
-      var weight = possSize; // weight by uncertainty
-
-      totalScore += slotScore * weight;
-      totalWeight += weight;
-    }
-
-    return totalWeight > 0 ? totalScore / totalWeight : 0;
-  }
-
-  // --- Proposal #5: Enhanced propagation with base-plant elimination ---
-  function propagateWithPlantElim(st, len) {
-    var changed = true, iter = 0;
-    while (changed && iter < 100) {
-      changed = false;
-      iter++;
-
-      // Standard: single-possibility → confirm
-      for (var s = 0; s < len; s++) {
-        if (st.possible[s].size === 1 && !st.confirmed[s]) {
-          var key = st.possible[s].values().next().value;
-          st.confirmed[s] = key;
-          for (var j = 0; j < len; j++) {
-            if (j !== s && st.possible[j].has(key)) {
-              st.possible[j].delete(key);
-              changed = true;
-            }
-          }
-        }
-      }
-
-      // Standard: mustInclude with single slot → lock
-      for (var mKey of st.mustInclude) {
-        var slots = [];
-        for (var s2 = 0; s2 < len; s2++) {
-          if (st.possible[s2].has(mKey)) slots.push(s2);
-        }
-        if (slots.length === 1 && st.possible[slots[0]].size > 1) {
-          st.possible[slots[0]] = new Set([mKey]);
-          st.confirmed[slots[0]] = mKey;
-          changed = true;
-        }
-      }
-
-      // Proposal #5: Base-plant elimination
-      // For each unconfirmed slot, build the set of base plants present
-      // in that slot's remaining possibilities.
-      // If a base plant is absent from ALL unconfirmed slots' possibility sets,
-      // it's globally dead → remove all hybrids containing it.
-      var allPlantsNeeded = new Set();
-      for (var s3 = 0; s3 < len; s3++) {
-        if (st.confirmed[s3]) {
-          var ck = parseKey(st.confirmed[s3]);
-          allPlantsNeeded.add(ck[0]);
-          allPlantsNeeded.add(ck[1]);
-          continue;
-        }
-        for (var pk of st.possible[s3]) {
-          var pp = parseKey(pk);
-          allPlantsNeeded.add(pp[0]);
-          allPlantsNeeded.add(pp[1]);
-        }
-      }
-
-      // For each unconfirmed slot, check which plants appear in possibilities
-      for (var s4 = 0; s4 < len; s4++) {
-        if (st.confirmed[s4]) continue;
-        var plantsInSlot = new Set();
-        for (var pk2 of st.possible[s4]) {
-          var pp2 = parseKey(pk2);
-          plantsInSlot.add(pp2[0]);
-          plantsInSlot.add(pp2[1]);
-        }
-
-        // If any plant appears in this slot but is NOT needed by any other
-        // unconfirmed slot as a unique contributor, we can't eliminate it.
-        // But: if a hybrid uses two plants that are both NOT in any
-        // confirmed answer and NOT possible at any other slot → remove it.
-        // This is the weaker but safe version.
-
-        // Stronger: remove hybrids from this slot if they contain a plant
-        // that cannot appear in ANY slot's answer.
-        // Build global answer-plant set (plants that MUST appear in some answer)
-        // This requires more analysis. For now, track per-slot plant sets.
-      }
-
-      // Cross-slot elimination: if all remaining hybrids at EVERY unconfirmed
-      // slot share a common trait, we can deduce constraints.
-      // For now: if a base plant P exists in possibilities of only one
-      // unconfirmed slot, all hybrids at that slot NOT containing P can be
-      // removed IF P is required (i.e., appears in a confirmed answer or
-      // mustInclude hybrid).
-      // This is the forward version of mustInclude propagation.
-    }
-  }
-
-  // --- Proposal #4: Minimax lookahead (1-ply) ---
-  function simulateFeedback1Slot(state, slot, p1, p2, fb, codeLen) {
-    var ns = cloneState(state);
-    var key = hKey(p1, p2);
-
-    if (fb === 'correct') {
-      ns.possible[slot] = new Set([key]);
-      ns.confirmed[slot] = key;
-      for (var j = 0; j < codeLen; j++) {
-        if (j !== slot) ns.possible[j].delete(key);
-      }
-    } else if (fb === 'wrongslot') {
-      ns.possible[slot].delete(key);
-      ns.mustInclude.add(key);
-    } else if (fb === 'partial') {
-      for (var j2 = 0; j2 < codeLen; j2++) ns.possible[j2].delete(key);
-      ns.excluded.add(key);
-      var kept = new Set();
-      for (var k of ns.possible[slot]) {
-        var pk = parseKey(k);
-        if (pk[0] === p1 || pk[1] === p1 || pk[0] === p2 || pk[1] === p2) {
-          kept.add(k);
-        }
-      }
-      ns.possible[slot] = kept;
-    } else if (fb === 'allwrong') {
-      for (var j3 = 0; j3 < codeLen; j3++) ns.possible[j3].delete(key);
-      ns.excluded.add(key);
-      var kept2 = new Set();
-      for (var k2 of ns.possible[slot]) {
-        var pk2 = parseKey(k2);
-        if (pk2[0] !== p1 && pk2[1] !== p1 && pk2[0] !== p2 && pk2[1] !== p2) {
-          kept2.add(k2);
-        }
-      }
-      ns.possible[slot] = kept2;
-    }
-
-    propagate(ns, codeLen);
-    return ns;
-  }
-
-  function totalUncertainty(state, codeLen) {
-    var total = 0;
-    for (var s = 0; s < codeLen; s++) {
-      if (!state.confirmed[s]) total += state.possible[s].size;
-    }
-    return total;
-  }
-
-  // Estimate feedback probabilities for a candidate at a slot
-  function estimateFbProbs(candKey, slot, state, isProbe) {
-    var cp = parseKey(candKey);
-    var possSize = state.possible[slot].size;
-    if (possSize === 0) return [0.25, 0.25, 0.25, 0.25]; // [correct, ws, partial, allwrong]
-
-    var inPossible = state.possible[slot].has(candKey);
-    var partialCount = 0, neitherCount = 0;
-
-    for (var pk of state.possible[slot]) {
-      if (pk === candKey) continue;
-      var pp = parseKey(pk);
-      if (pp[0] === cp[0] || pp[1] === cp[0] ||
-          pp[0] === cp[1] || pp[1] === cp[1]) {
-        partialCount++;
-      } else {
-        neitherCount++;
-      }
-    }
-
-    var others = partialCount + neitherCount;
-    if (isProbe) {
-      // We know slot's answer ≠ candidate. Correct is impossible.
-      // WrongSlot unlikely (candidate excluded from knownInAnswer).
-      var pPartial = others > 0 ? partialCount / others : 0.5;
-      var pAllWrong = others > 0 ? neitherCount / others : 0.5;
-      return [0, 0.02, pPartial * 0.98, pAllWrong * 0.98];
-    }
-
-    // Normal slot: uniform prior over possible set
-    var pCorrect = inPossible ? 1 / possSize : 0;
-    var pRemain = 1 - pCorrect;
-    var pPartial2 = others > 0 ? (partialCount / others) * pRemain : 0;
-    var pAllWrong2 = others > 0 ? (neitherCount / others) * pRemain : 0;
-    // Small wrongslot chance if in possible elsewhere
-    return [pCorrect, 0.02 * pRemain, pPartial2 * 0.98, pAllWrong2 * 0.98];
-  }
-
-  function lookaheadScore(candKey, slot, state, codeLen, isProbe) {
-    var cp = parseKey(candKey);
-    var probs = estimateFbProbs(candKey, slot, state, isProbe);
-    var fbTypes = ['correct', 'wrongslot', 'partial', 'allwrong'];
-    var currentUnc = totalUncertainty(state, codeLen);
-    var expectedReduction = 0;
-
-    for (var fi = 0; fi < 4; fi++) {
-      if (probs[fi] < 0.005) continue;
-      var simState = simulateFeedback1Slot(state, slot, cp[0], cp[1], fbTypes[fi], codeLen);
-      var afterUnc = totalUncertainty(simState, codeLen);
-      expectedReduction += probs[fi] * (currentUnc - afterUnc);
-    }
-
-    return expectedReduction;
-  }
-
-  // --- Main strategic suggestion ---
-  function strategicSuggestion(state, validHybrids, codeLen, isFirst, selectedPlants) {
-    if (isFirst) return firstGuess(validHybrids, codeLen);
-
-    var result = new Array(codeLen).fill(null);
-    var used = new Set();
-
-    // Step 1: Fill game-locked slots
-    for (var s = 0; s < codeLen; s++) {
-      if (state.gameLocked[s] && state.confirmed[s]) {
-        result[s] = state.confirmed[s];
-        used.add(state.confirmed[s]);
-      }
-    }
-
-    // Step 2: Classify slots
-    var probeSlots = [];
-    var unknownSlots = [];
-    for (var s2 = 0; s2 < codeLen; s2++) {
-      if (state.gameLocked[s2]) continue;
-      if (state.confirmed[s2]) {
-        probeSlots.push(s2);
-      } else {
-        unknownSlots.push(s2);
-      }
-    }
-
-    if (unknownSlots.length === 0 && probeSlots.length === 0) return result;
-
-    // Collect known-in-answer hybrids
-    var knownInAnswer = new Set(state.mustInclude);
-    for (var s3 = 0; s3 < codeLen; s3++) {
-      if (state.confirmed[s3]) knownInAnswer.add(state.confirmed[s3]);
-    }
-
-    // Step 3: Proposal #6 — Adaptive placement threshold
-    var totalPoss = 0, readyCount = 0, maxPoss = 0;
-    for (var i2 = 0; i2 < unknownSlots.length; i2++) {
-      var ps = state.possible[unknownSlots[i2]].size;
-      totalPoss += ps;
-      if (ps <= 1) readyCount++;
-      if (ps > maxPoss) maxPoss = ps;
-    }
-    var avgPoss = unknownSlots.length > 0 ? totalPoss / unknownSlots.length : 0;
-
-    var shouldPlace;
-    if (unknownSlots.length === 0) {
-      shouldPlace = true;
-    } else if (readyCount === unknownSlots.length) {
-      shouldPlace = true;
-    } else if (probeSlots.length > 0) {
-      // With free probes: stay in info mode longer
-      shouldPlace = avgPoss <= 1.5 || maxPoss <= 2;
-    } else {
-      // No probes: place sooner
-      shouldPlace = avgPoss <= 3 || maxPoss <= 2;
-    }
-
-    // Also place if WS hybrids fill most remaining slots
-    if (!shouldPlace) {
-      var allActive = probeSlots.length + unknownSlots.length;
-      var unplacedWS = 0;
-      for (var mKey of state.mustInclude) {
-        var placed = false;
-        for (var s4 = 0; s4 < codeLen; s4++) {
-          if (state.gameLocked[s4] && state.confirmed[s4] === mKey) { placed = true; break; }
-        }
-        if (!placed) unplacedWS++;
-      }
-      if (unplacedWS > 0 && unplacedWS >= allActive - 1) shouldPlace = true;
-    }
-
-    if (shouldPlace) {
-      for (var pi = 0; pi < probeSlots.length; pi++) {
-        result[probeSlots[pi]] = state.confirmed[probeSlots[pi]];
-        used.add(state.confirmed[probeSlots[pi]]);
-      }
-      return placementSuggestion(state, validHybrids, codeLen, unknownSlots.slice(), result, used);
-    }
-
-    // --- Info-gathering mode ---
-    var allInfoSlots = probeSlots.concat(unknownSlots);
-    allInfoSlots.sort(function (a, b) {
-      var aP = state.confirmed[a] && !state.gameLocked[a] ? 1 : 0;
-      var bP = state.confirmed[b] && !state.gameLocked[b] ? 1 : 0;
-      if (aP !== bP) return bP - aP;
-      return state.possible[b].size - state.possible[a].size;
-    });
-
-    // Pre-compute tested plants for probe modifiers
-    var testedPlants = new Set();
-    for (var ek of state.excluded) {
-      var ep = parseKey(ek);
-      testedPlants.add(ep[0]); testedPlants.add(ep[1]);
-    }
-    for (var ck = 0; ck < codeLen; ck++) {
-      if (state.confirmed[ck]) {
-        var ckp = parseKey(state.confirmed[ck]);
-        testedPlants.add(ckp[0]); testedPlants.add(ckp[1]);
-      }
-    }
-    for (var mk2 of state.mustInclude) {
-      var mp2 = parseKey(mk2);
-      testedPlants.add(mp2[0]); testedPlants.add(mp2[1]);
-    }
-
-    for (var si = 0; si < allInfoSlots.length; si++) {
-      var slot = allInfoSlots[si];
-      var isProbe = state.confirmed[slot] && !state.gameLocked[slot];
-
-      // Single-possibility unknowns: just place
-      if (!isProbe && state.possible[slot].size <= 1) {
-        if (state.possible[slot].size === 1) {
-          var onlyKey = state.possible[slot].values().next().value;
-          result[slot] = onlyKey;
-          used.add(onlyKey);
-        }
-        continue;
-      }
-
-      // Build candidate pool (exclude used + known-in-answer)
-      var infoCandidates = [];
-      for (var hi = 0; hi < validHybrids.length; hi++) {
-        var hk = validHybrids[hi].key;
-        if (used.has(hk)) continue;
-        if (knownInAnswer.has(hk)) continue;
-        infoCandidates.push(hk);
-      }
-      if (infoCandidates.length === 0) {
-        for (var hi2 = 0; hi2 < validHybrids.length; hi2++) {
-          if (!used.has(validHybrids[hi2].key)) infoCandidates.push(validHybrids[hi2].key);
-        }
-      }
-      if (infoCandidates.length === 0) {
-        if (isProbe) { result[slot] = state.confirmed[slot]; used.add(state.confirmed[slot]); }
-        continue;
-      }
-
-      // --- Phase 1: Composite scoring (#1) + probe modifiers ---
-      var scored = [];
-      for (var ci = 0; ci < infoCandidates.length; ci++) {
-        var cand = infoCandidates[ci];
-        var cp = parseKey(cand);
-        var cs = compositeScore(cand, unknownSlots, state);
-
-        if (isProbe) {
-          var knownKey = state.confirmed[slot];
-          var kp = parseKey(knownKey);
-          if (cp[0] === kp[0] || cp[0] === kp[1] || cp[1] === kp[0] || cp[1] === kp[1]) {
-            cs -= 0.15; // penalty: shares base with known answer
-          }
-          cs += ((!testedPlants.has(cp[0]) ? 1 : 0) + (!testedPlants.has(cp[1]) ? 1 : 0)) * 0.02;
-        } else {
-          if (state.possible[slot].has(cand)) cs += 0.01;
-        }
-        if (cp[0] !== cp[1]) cs += 0.005; // prefer heterozygous
-
-        scored.push({ key: cand, score: cs });
-      }
-
-      scored.sort(function (a, b) { return b.score - a.score; });
-
-      // --- Phase 2: Minimax lookahead (#4) on top candidates ---
-      var LOOKAHEAD_N = 8;
-      var useLookahead = unknownSlots.length >= 2 && scored.length >= 2;
-
-      if (useLookahead) {
-        var topN = Math.min(LOOKAHEAD_N, scored.length);
-        var bestKey = scored[0].key;
-        var bestBlend = -Infinity;
-
-        for (var li = 0; li < topN; li++) {
-          var lk = scored[li].key;
-          var laScore = lookaheadScore(lk, slot, state, codeLen, isProbe);
-          // Blend: 70% lookahead info reduction, 30% composite quality
-          var blend = laScore * 0.7 + scored[li].score * 0.3;
-          if (blend > bestBlend) { bestBlend = blend; bestKey = lk; }
-        }
-
-        result[slot] = bestKey;
-        used.add(bestKey);
-      } else {
-        result[slot] = scored[0].key;
-        used.add(scored[0].key);
-      }
-    }
-
-    return result;
-  }
-
-  // Placement mode: place known answers + best remaining guesses
-  function placementSuggestion(state, validHybrids, codeLen, activeSlots, result, used) {
-    // First, place Wrong Slot hybrids where they fit
-    var wsToPlace = [];
-    for (var mKey of state.mustInclude) {
-      var placed = false;
-      for (var s = 0; s < codeLen; s++) {
-        if (state.gameLocked[s] && state.confirmed[s] === mKey) { placed = true; break; }
-        if (result[s] === mKey) { placed = true; break; }
-      }
-      if (!placed) wsToPlace.push(mKey);
-    }
-
-    // Sort active slots by fewest remaining
-    var sortedActive = activeSlots.slice().sort(function (a, b) {
-      return state.possible[a].size - state.possible[b].size;
-    });
-
-    for (var si = 0; si < sortedActive.length; si++) {
-      var slot = sortedActive[si];
-      if (result[slot]) continue;
-
-      // Try to place a Wrong Slot hybrid here if it fits
-      var wsPlaced = false;
-      for (var wi = 0; wi < wsToPlace.length; wi++) {
-        var wsKey = wsToPlace[wi];
-        if (!used.has(wsKey) && state.possible[slot].has(wsKey)) {
-          result[slot] = wsKey;
-          used.add(wsKey);
-          wsToPlace.splice(wi, 1);
-          wsPlaced = true;
-          break;
-        }
-      }
-      if (wsPlaced) continue;
-
-      // Pick from remaining possibilities
-      var candidates = [];
-      for (var k of state.possible[slot]) {
-        if (!used.has(k)) candidates.push(k);
-      }
-      if (!candidates.length) {
-        for (var h of validHybrids) {
-          if (!used.has(h.key)) { candidates.push(h.key); break; }
-        }
-      }
-      if (candidates.length > 0) {
-        // Pick by balanced overlap (same as heuristic)
-        var best = candidates[0];
-        if (candidates.length > 1 && state.possible[slot].size > 1) {
-          var bestBal = Infinity;
-          for (var ci = 0; ci < candidates.length; ci++) {
-            var c = candidates[ci];
-            var cp = parseKey(c);
-            var shared = 0;
-            for (var other of state.possible[slot]) {
-              if (other === c) continue;
-              var op = parseKey(other);
-              if (op[0] === cp[0] || op[1] === cp[0] || op[0] === cp[1] || op[1] === cp[1]) shared++;
-            }
-            var tot = state.possible[slot].size - 1;
-            var bal = tot > 0 ? Math.abs(shared / tot - 0.5) : 0;
-            if (bal < bestBal) { bestBal = bal; best = c; }
-          }
-        }
-        result[slot] = best;
-        used.add(best);
-      }
-    }
-    return result;
-  }
-
-  // First guess (shared by both engines): maximize base plant coverage
-  // Adds controlled randomness by shuffling among equally-optimal candidates
-  function firstGuess(validHybrids, codeLen) {
-    var usedP = new Set(), usedH = new Set(), result = [];
-    for (var s = 0; s < codeLen; s++) {
-      // Find the best score first
-      var bestScore = -1;
-      for (var hi = 0; hi < validHybrids.length; hi++) {
-        var h = validHybrids[hi];
-        if (usedH.has(h.key)) continue;
-        var nc = (usedP.has(h.p1) ? 0 : 1) + (usedP.has(h.p2) ? 0 : 1);
-        var diff = h.p1 !== h.p2 ? 0.5 : 0;
-        var sc = nc + diff;
-        if (sc > bestScore) bestScore = sc;
-      }
-      // Collect all candidates tied at bestScore
-      var tied = [];
-      for (var hi2 = 0; hi2 < validHybrids.length; hi2++) {
-        var h2 = validHybrids[hi2];
-        if (usedH.has(h2.key)) continue;
-        var nc2 = (usedP.has(h2.p1) ? 0 : 1) + (usedP.has(h2.p2) ? 0 : 1);
-        var diff2 = h2.p1 !== h2.p2 ? 0.5 : 0;
-        if (nc2 + diff2 >= bestScore - 0.001) tied.push(h2);
-      }
-      // Pick a random candidate from the tied set
-      var bestH = tied.length > 0
-        ? tied[Math.floor(Math.random() * tied.length)]
-        : null;
-      if (!bestH) {
-        for (var hi3 = 0; hi3 < validHybrids.length; hi3++) {
-          if (!usedH.has(validHybrids[hi3].key)) { bestH = validHybrids[hi3]; break; }
-        }
-      }
-      if (bestH) {
-        result.push(bestH.key);
-        usedP.add(bestH.p1); usedP.add(bestH.p2);
-        usedH.add(bestH.key);
-      }
-    }
-    return result;
-  }
-
-  // ============================================================
-  // PERSISTENCE
-  // ============================================================
-
-  function serializeState(st) {
-    return {
-      possible: st.possible.map(function (s) { return Array.from(s); }),
-      mustInclude: Array.from(st.mustInclude),
-      excluded: Array.from(st.excluded),
-      confirmed: st.confirmed,
-      gameLocked: st.gameLocked
-    };
-  }
-
-  function deserializeState(d) {
-    var codeLen = d.possible.length;
-    return {
-      possible: d.possible.map(function (a) { return new Set(a); }),
-      mustInclude: new Set(d.mustInclude),
-      excluded: new Set(d.excluded),
-      confirmed: d.confirmed,
-      gameLocked: d.gameLocked || new Array(codeLen).fill(false)
-    };
-  }
-
-  function saveGame(config, data, engine) {
+  function importFromHash() {
     try {
-      var obj = {
-        v: 3,
-        config: config,
-        engine: engine || ENGINE_STRATEGIC,
-        data: {
-          validHybrids: data.validHybrids,
-          solverState: serializeState(data.solverState),
-          history: data.history,
-          suggestion: data.suggestion
-        }
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
-    } catch (_) { /* ignore */ }
-  }
-
-  function loadGame() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      var obj = JSON.parse(raw);
-      if (!obj || (obj.v !== 1 && obj.v !== 2 && obj.v !== 3)) return null;
-      return {
-        config: obj.config,
-        engine: obj.engine || ENGINE_STRATEGIC,
-        data: {
-          validHybrids: obj.data.validHybrids,
-          solverState: deserializeState(obj.data.solverState),
-          history: obj.data.history,
-          suggestion: obj.data.suggestion
-        }
-      };
+      if (typeof location === 'undefined' || !location.hash) return null;
+      var m = location.hash.match(/[#&]g=([^&]+)/);
+      if (!m) return null;
+      var obj = JSON.parse(b64urlDecode(m[1]));
+      if (!obj || !obj.config || !Array.isArray(obj.config.selectedPlants) ||
+        typeof obj.config.codeLength !== 'number' || !Array.isArray(obj.history)) return null;
+      var engine = obj.engine || ENGINE_STRATEGIC;
+      var data = rebuildFromHistory(obj.config, engine, obj.history);
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (_) { /* ignore */ }
+      return { config: obj.config, engine: engine, data: data };
     } catch (_) { return null; }
-  }
-
-  function clearGame() {
-    try { localStorage.removeItem(STORAGE_KEY); } catch (_) { /* ignore */ }
-  }
-
-  // ============================================================
-  // HELPER: build hybrid lookup
-  // ============================================================
-
-  function buildHybridLookup(validHybrids) {
-    const map = new Map();
-    for (const h of validHybrids) map.set(h.key, h);
-    return map;
   }
 
   // ============================================================
@@ -873,11 +118,17 @@
   // ---- App (root) ----
 
   function App() {
-    var saved = useMemo(function () { return loadGame(); }, []);
+    // A shared link (URL hash) takes precedence over the locally saved game.
+    var saved = useMemo(function () { return importFromHash() || loadGame(); }, []);
     var [screen, setScreen] = useState(saved ? 'solver' : 'setup');
     var [config, setConfig] = useState(saved ? saved.config : null);
     var [data, setData] = useState(saved ? saved.data : null);
     var [engine, setEngine] = useState(saved ? saved.engine : ENGINE_STRATEGIC);
+
+    // Persist whatever we started with (esp. an imported shared game) once.
+    useEffect(function () {
+      if (config && data) saveGame(config, data, engine);
+    }, []); // eslint-disable-line
 
     var handleStart = useCallback(function (cfg) {
       var vh = getValidHybrids(cfg.selectedPlants);
@@ -922,7 +173,7 @@
     });
   }
 
-  // ---- SetupScreen (simplified: first N plants auto-selected) ----
+  // ---- SetupScreen (first N base plants auto-selected) ----
 
   function SetupScreen({ onStart }) {
     var [plantCount, setPlantCount] = useState(5);
@@ -972,7 +223,7 @@
           )
         ),
 
-        // Show which plants are selected
+        // Show which plants are in play (read-only)
         e('div', { className: 'setup-section' },
           e('div', { className: 'setup-section-title' }, 'Base Plants'),
           e('div', { className: 'plant-grid' },
@@ -985,9 +236,11 @@
                 e('span', { className: 'plant-chip-index' }, idx + 1),
                 e('div', {
                   className: 'plant-avatar',
-                  style: { background: sel
-                    ? 'linear-gradient(135deg, ' + PLANT_COLORS[idx] + ', ' + PLANT_COLORS[idx] + '88)'
-                    : 'rgba(255,255,255,0.06)' }
+                  style: {
+                    background: sel
+                      ? 'linear-gradient(135deg, ' + PLANT_COLORS[idx] + ', ' + PLANT_COLORS[idx] + '88)'
+                      : 'rgba(255,255,255,0.06)'
+                  }
                 }, BASE_SHORT[idx].charAt(0)),
                 e('span', { className: 'plant-chip-name' }, BASE_SHORT[idx])
               );
@@ -1045,6 +298,7 @@
     var [feedback, setFeedback] = useState(function () {
       return new Array(codeLen).fill(null);
     });
+    var [shareMsg, setShareMsg] = useState(null);
 
     // Auto-fill game-locked slots in guess + feedback
     useEffect(function () {
@@ -1159,6 +413,26 @@
       onUpdate({ validHybrids: vh, solverState: st, history: [], suggestion: sug });
     }
 
+    // Undo: keep the first `keepCount` rounds and rebuild everything by replay.
+    function handleUndoTo(keepCount) {
+      var nh = data.history.slice(0, Math.max(0, keepCount));
+      onUpdate(rebuildFromHistory(config, engine, nh));
+    }
+    function handleUndo() { handleUndoTo(data.history.length - 1); }
+
+    function handleShare() {
+      var url = buildShareUrl(config, engine, data.history);
+      var done = function () { setShareMsg('Link copied!'); setTimeout(function () { setShareMsg(null); }, 2000); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done, function () { window.prompt('Copy this share link:', url); });
+      } else {
+        window.prompt('Copy this share link:', url);
+      }
+    }
+
+    // Diagnose which round first caused a contradiction (cheap replay).
+    var diagnosis = hasContradiction ? diagnoseContradiction(config, data.history) : null;
+
     var lockedCount = data.solverState.gameLocked.filter(function (l) { return l; }).length;
     var deducedCount = data.solverState.confirmed.filter(function (c, i) { return c !== null && !data.solverState.gameLocked[i]; }).length;
 
@@ -1176,6 +450,15 @@
           )
         ),
         e('div', { className: 'solver-actions' },
+          e('button', {
+            className: 'header-btn', onClick: handleUndo,
+            disabled: data.history.length === 0,
+            title: 'Undo the last round'
+          }, '↩ Undo'),
+          e('button', {
+            className: 'header-btn', onClick: handleShare,
+            title: 'Copy a shareable link to this game'
+          }, shareMsg ? '✓ ' + shareMsg : '🔗 Share'),
           e('button', { className: 'header-btn', onClick: handleRestartSameConfig }, '↻ Restart'),
           e('button', { className: 'header-btn danger', onClick: handleNewGame }, 'New Game')
         )
@@ -1190,10 +473,23 @@
         )
       ) : null,
 
-      // Contradiction warning
+      // Contradiction diagnosis + one-click undo
       hasContradiction && !isSolved ? e('div', { className: 'warning-banner' },
         e('span', { className: 'warning-icon' }, '⚠'),
-        e('span', null, 'Some slots have 0 possibilities. Double-check your feedback entries.')
+        e('div', { className: 'warning-body' },
+          diagnosis
+            ? e('div', null,
+              e('strong', null, 'Contradiction detected. '),
+              'Slot ' + (diagnosis.slot + 1) + ' has no possibilities left — the feedback for Round ' +
+              diagnosis.round + ' is likely inconsistent with earlier rounds.')
+            : e('span', null, 'Some slots have 0 possibilities. Double-check your feedback entries.'),
+          diagnosis
+            ? e('button', {
+              className: 'warning-action',
+              onClick: function () { handleUndoTo(diagnosis.round - 1); }
+            }, '↩ Undo Round ' + diagnosis.round)
+            : null
+        )
       ) : null,
 
       // Suggestion panel
@@ -1219,6 +515,11 @@
                 title: 'Strategic: maximizes information, avoids placing known answers prematurely'
               }, '🧠 Strategic'),
               e('button', {
+                className: 'engine-opt' + (engine === ENGINE_OPTIMAL ? ' active' : ''),
+                onClick: function () { onEngineChange(ENGINE_OPTIMAL); },
+                title: 'Optimal: minimizes expected remaining answers via exact information gain (computer play)'
+              }, '🤖 Optimal'),
+              e('button', {
                 className: 'engine-opt' + (engine === ENGINE_HEURISTIC ? ' active' : ''),
                 onClick: function () { onEngineChange(ENGINE_HEURISTIC); },
                 title: 'Heuristic: greedy placement-focused approach'
@@ -1229,9 +530,11 @@
 
         // Engine description
         e('div', { className: 'engine-note' },
-          engine === ENGINE_STRATEGIC
-            ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
-            : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
+          engine === ENGINE_OPTIMAL
+            ? '🤖 Optimal mode: when few answers remain it enumerates them and picks the guess that minimizes the expected number left (true information gain); falls back to Strategic early on.'
+            : engine === ENGINE_STRATEGIC
+              ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
+              : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
         ),
 
         // Horizontal guess columns
@@ -1298,7 +601,7 @@
                 hybridName
                   ? e('div', { className: 'guess-col-result valid' }, hybridName)
                   : e('div', { className: 'guess-col-result invalid' },
-                      g.p1 !== null && g.p2 !== null ? 'Invalid' : '...'),
+                    g.p1 !== null && g.p2 !== null ? 'Invalid' : '...'),
                 // Feedback 2×2 grid
                 e('div', { className: 'fb-grid' },
                   FEEDBACK_TYPES.map(function (ft) {
@@ -1324,7 +627,7 @@
           e('span', { className: 'submit-helper' },
             !allActiveGuessValid ? 'Select valid plant pairs for active slots'
               : !allActiveFbSet ? 'Set feedback for active slots'
-              : 'Ready to submit'
+                : 'Ready to submit'
           ),
           e('button', {
             className: 'submit-btn',
@@ -1347,8 +650,11 @@
       // Analysis panel
       e(AnalysisPanel, { solverState: data.solverState, lookup: lookup, codeLen: codeLen }),
 
-      // History panel
-      e(HistoryPanel, { history: data.history, lookup: lookup, codeLen: codeLen })
+      // Explanation panel
+      e(ExplanationPanel, { history: data.history, solverState: data.solverState, lookup: lookup, codeLen: codeLen }),
+
+      // History panel (with per-round undo)
+      e(HistoryPanel, { history: data.history, lookup: lookup, codeLen: codeLen, onUndoTo: handleUndoTo })
     );
   }
 
@@ -1466,8 +772,8 @@
                 : isImpossible
                   ? e('div', { className: 'analysis-slot-value', style: { color: 'var(--allwrong)' } }, 'No possibilities')
                   : e('div', { className: 'analysis-remaining-list' },
-                      remaining.join(', ') + (moreCount > 0 ? ' +' + moreCount + ' more' : '')
-                    )
+                    remaining.join(', ') + (moreCount > 0 ? ' +' + moreCount + ' more' : '')
+                  )
             );
           })
         )
@@ -1475,9 +781,82 @@
     );
   }
 
+  // ---- ExplanationPanel ----
+
+  // Human-readable deduction for one slot's feedback.
+  function deductionLine(g, fb, slotIdx) {
+    var name = getHybridName(g.p1, g.p2) || '?';
+    var A = BASE_SHORT[g.p1], B = BASE_SHORT[g.p2];
+    var slot = 'Slot ' + (slotIdx + 1) + ': ';
+    switch (fb) {
+      case 'correct': return { icon: '🟢', text: slot + name + ' is exact — this slot is locked.' };
+      case 'wrongslot': return { icon: '🔵', text: slot + name + ' is in the answer but not here — it belongs to another slot.' };
+      case 'partial': return { icon: '🟣', text: slot + 'one of ' + A + ' / ' + B + ' belongs here; ' + name + ' is ruled out everywhere.' };
+      case 'allwrong': return { icon: '🔴', text: slot + 'neither ' + A + ' nor ' + B + ' is here; ' + name + ' is ruled out everywhere.' };
+      default: return null;
+    }
+  }
+
+  function ExplanationPanel({ history, solverState, lookup, codeLen }) {
+    var lastRound = history.length ? history[history.length - 1] : null;
+
+    var placed = new Set();
+    for (var s = 0; s < codeLen; s++) if (solverState.confirmed[s]) placed.add(solverState.confirmed[s]);
+    var mustAppear = [];
+    solverState.mustInclude.forEach(function (k) { if (!placed.has(k)) mustAppear.push(k); });
+    var lockedCount = 0, deducedCount = 0;
+    for (var s2 = 0; s2 < codeLen; s2++) {
+      if (solverState.gameLocked[s2]) lockedCount++;
+      else if (solverState.confirmed[s2]) deducedCount++;
+    }
+    var nameOf = function (key) { var h = lookup.get(key); return h ? h.name : key; };
+
+    return e('div', { className: 'solver-panel' },
+      e('div', { className: 'panel-title-bar' },
+        e('div', { className: 'panel-title' },
+          e('span', { className: 'panel-title-icon' }, '🧠'),
+          e('h2', null, 'Explanation')
+        )
+      ),
+      e('div', { className: 'panel-body' },
+        !lastRound
+          ? e('div', { className: 'history-empty' }, 'Submit a guess to see what each piece of feedback tells the solver.')
+          : e('div', { className: 'explain-block' },
+            e('div', { className: 'explain-subtitle' }, 'What Round ' + history.length + ' told us'),
+            e('ul', { className: 'explain-list' },
+              lastRound.feedback.map(function (fb, i) {
+                var line = deductionLine(lastRound.guess[i], fb, i);
+                if (!line) return null;
+                return e('li', { key: i },
+                  e('span', { className: 'explain-icon' }, line.icon),
+                  e('span', null, line.text));
+              })
+            )
+          ),
+        e('div', { className: 'explain-block' },
+          e('div', { className: 'explain-subtitle' }, 'What we know now'),
+          e('ul', { className: 'explain-list' },
+            e('li', { key: 'locked' },
+              e('span', { className: 'explain-icon' }, '🔒'),
+              e('span', null, lockedCount + ' slot(s) confirmed by the game' +
+                (deducedCount ? ', ' + deducedCount + ' more deduced (💡)' : ''))),
+            mustAppear.length
+              ? e('li', { key: 'must' },
+                e('span', { className: 'explain-icon' }, '🔵'),
+                e('span', null, 'Must still appear somewhere: ' + mustAppear.map(nameOf).join(', ')))
+              : null,
+            e('li', { key: 'ruled' },
+              e('span', { className: 'explain-icon' }, '🚫'),
+              e('span', null, solverState.excluded.size + ' hybrid(s) ruled out of the answer entirely'))
+          )
+        )
+      )
+    );
+  }
+
   // ---- HistoryPanel ----
 
-  function HistoryPanel({ history, lookup, codeLen }) {
+  function HistoryPanel({ history, lookup, codeLen, onUndoTo }) {
     const fbIcons = { correct: '✓', wrongslot: '↔', partial: '◐', allwrong: '✕' };
 
     return e('div', { className: 'solver-panel' },
@@ -1491,23 +870,30 @@
       history.length === 0
         ? e('div', { className: 'history-empty' }, 'No guesses yet. Submit your first guess above.')
         : e('div', null,
-            history.map(function (round, rIdx) {
-              return e('div', { key: rIdx, className: 'history-round' },
+          history.map(function (round, rIdx) {
+            return e('div', { key: rIdx, className: 'history-round' },
+              e('div', { className: 'history-round-head' },
                 e('div', { className: 'history-round-title' }, 'Round ' + (rIdx + 1)),
-                e('div', { className: 'history-slots' },
-                  round.guess.map(function (g, sIdx) {
-                    const fb = round.feedback[sIdx];
-                    const name = getHybridName(g.p1, g.p2) || '?';
-                    const icon = fbIcons[fb] || '?';
-                    return e('span', { key: sIdx, className: 'history-chip ' + fb },
-                      e('span', null, name),
-                      e('span', { className: 'history-fb-icon' }, icon)
-                    );
-                  })
-                )
-              );
-            }).reverse()
-          )
+                onUndoTo ? e('button', {
+                  className: 'history-undo-btn',
+                  title: 'Undo this round and everything after it',
+                  onClick: function () { onUndoTo(rIdx); }
+                }, '↩ undo') : null
+              ),
+              e('div', { className: 'history-slots' },
+                round.guess.map(function (g, sIdx) {
+                  const fb = round.feedback[sIdx];
+                  const name = getHybridName(g.p1, g.p2) || '?';
+                  const icon = fbIcons[fb] || '?';
+                  return e('span', { key: sIdx, className: 'history-chip ' + fb },
+                    e('span', null, name),
+                    e('span', { className: 'history-fb-icon' }, icon)
+                  );
+                })
+              )
+            );
+          }).reverse()
+        )
     );
   }
 
