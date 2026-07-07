@@ -21,6 +21,27 @@
   var ENGINE_STRATEGIC = Engine.ENGINE_STRATEGIC;
   var ENGINE_MINIMAX = Engine.ENGINE_MINIMAX;
   var ENGINE_ENTROPY = Engine.ENGINE_ENTROPY;
+  var ENGINE_GENETIC = Engine.ENGINE_GENETIC;
+
+  // Per-engine strengths / weaknesses, shown in the "book" info panel. Ordered
+  // strongest-overall first. (Numbers are from the repo benchmark, ~avg rounds.)
+  var ENGINE_INFO = [
+    { id: ENGINE_MINIMAX, icon: '🤖', name: 'Minimax',
+      pro: 'Best overall — lowest average AND best worst case (defends the tail with exact endgame search).',
+      con: 'Slowest deep search; leans on Strategic in the wide-open opening.' },
+    { id: ENGINE_STRATEGIC, icon: '🧠', name: 'Strategic',
+      pro: 'Strong all-round and fast; best opening play — gathers information before committing.',
+      con: 'Heuristic, not exhaustive: an expert search edges it out late-game.' },
+    { id: ENGINE_ENTROPY, icon: '📊', name: 'Entropy',
+      pro: 'Sharp on small/enumerable puzzles — picks the guess that splits answers most evenly (max info).',
+      con: 'Ignores the worst case (occasional long games); slower; defers the opening to Strategic.' },
+    { id: ENGINE_GENETIC, icon: '🧬', name: 'Genetic',
+      pro: 'Evolves candidate codes instead of enumerating, so it works across a wider mid-range.',
+      con: 'Competitive but not superior; stochastic; can run a round long on hard configs.' },
+    { id: ENGINE_HEURISTIC, icon: '⚡', name: 'Heuristic',
+      pro: 'Instant and simple — a greedy baseline that never stalls.',
+      con: 'Weakest results: highest average and a longer tail than the smarter engines.' }
+  ];
 
   // Pure APIs consumed by the UI
   var parseKey = Engine.parseKey;
@@ -301,6 +322,7 @@
       return new Array(codeLen).fill(null);
     });
     var [shareMsg, setShareMsg] = useState(null);
+    var [showEngineInfo, setShowEngineInfo] = useState(false);
 
     // Auto-fill game-locked slots in guess + feedback
     useEffect(function () {
@@ -527,13 +549,43 @@
                 title: 'Entropy: picks the guess whose feedback yields the most information on average (Shannon entropy)'
               }, '📊 Entropy'),
               e('button', {
+                className: 'engine-opt' + (engine === ENGINE_GENETIC ? ' active' : ''),
+                onClick: function () { onEngineChange(ENGINE_GENETIC); },
+                title: 'Genetic: evolves a population of candidate codes toward consistency (Berghman-style)'
+              }, '🧬 Genetic'),
+              e('button', {
                 className: 'engine-opt' + (engine === ENGINE_HEURISTIC ? ' active' : ''),
                 onClick: function () { onEngineChange(ENGINE_HEURISTIC); },
                 title: 'Heuristic: greedy placement-focused approach'
               }, '⚡ Heuristic')
-            )
+            ),
+            e('button', {
+              className: 'engine-info-btn' + (showEngineInfo ? ' active' : ''),
+              onClick: function () { setShowEngineInfo(function (v) { return !v; }); },
+              title: 'Compare engines: strengths & weaknesses',
+              'aria-label': 'Compare engines'
+            }, '📖')
           )
         ),
+
+        // Engine comparison panel (toggled by the book button)
+        showEngineInfo ? e('div', { className: 'engine-info-panel' },
+          e('div', { className: 'engine-info-title' }, '📖 Engine guide — pick by what you need'),
+          ENGINE_INFO.map(function (info) {
+            return e('div', {
+              key: info.id,
+              className: 'engine-info-row' + (engine === info.id ? ' current' : ''),
+              onClick: function () { onEngineChange(info.id); }
+            },
+              e('div', { className: 'engine-info-head' },
+                e('span', { className: 'engine-info-name' }, info.icon + ' ' + info.name),
+                engine === info.id ? e('span', { className: 'engine-info-active' }, 'active') : null
+              ),
+              e('div', { className: 'engine-info-pro' }, '👍 ' + info.pro),
+              e('div', { className: 'engine-info-con' }, '👎 ' + info.con)
+            );
+          })
+        ) : null,
 
         // Engine description
         e('div', { className: 'engine-note' },
@@ -541,9 +593,11 @@
             ? '🤖 Minimax mode: when few answers remain it searches the game tree and picks the guess that minimizes the worst-case rounds left (with pairing probes); falls back to Strategic early on.'
             : engine === ENGINE_ENTROPY
               ? '📊 Entropy mode: enumerates the remaining answers and picks the guess whose feedback splits them most evenly — maximum information on average; falls back to Strategic early on.'
-              : engine === ENGINE_STRATEGIC
-                ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
-                : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
+              : engine === ENGINE_GENETIC
+                ? '🧬 Genetic mode: evolves a population of candidate codes toward consistency, then plays the fittest plausible answer; falls back to Strategic in the wide-open opening.'
+                : engine === ENGINE_STRATEGIC
+                  ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
+                  : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
         ),
 
         // Horizontal guess columns

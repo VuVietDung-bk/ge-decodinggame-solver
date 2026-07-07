@@ -20,7 +20,8 @@ const ENGINES = [
   { name: 'strategic', suggest: wrap(E.ENGINE_STRATEGIC) },
   { name: 'heuristic', suggest: wrap(E.ENGINE_HEURISTIC) },
   { name: 'minimax', suggest: wrap(E.ENGINE_MINIMAX) },
-  { name: 'entropy', suggest: wrap(E.ENGINE_ENTROPY) }
+  { name: 'entropy', suggest: wrap(E.ENGINE_ENTROPY) },
+  { name: 'genetic', suggest: wrap(E.ENGINE_GENETIC) }
 ];
 
 // Select engines by name (case-insensitive); throws on unknown names.

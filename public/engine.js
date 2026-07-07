@@ -17,4 +17,5 @@ require('./engine-heuristic.js');
 require('./engine-strategic.js');
 require('./engine-minimax.js');
 require('./engine-entropy.js');
+require('./engine-genetic.js');
 module.exports = core;

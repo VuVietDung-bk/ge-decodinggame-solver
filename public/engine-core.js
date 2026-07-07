@@ -120,7 +120,16 @@
     ENTROPY_ENUM_CAP: 2000,          // max #answers to enumerate before falling back to strategic
     ENTROPY_NODE_CAP: 200000,        // enumeration node budget before fallback
     ENTROPY_GUESS_CAP: 500,          // max candidate guesses scored per round
-    ENTROPY_SCORE_CAP: 300           // max answers sampled to estimate each guess's entropy
+    ENTROPY_SCORE_CAP: 300,          // max answers sampled to estimate each guess's entropy
+
+    // Genetic engine — evolve a population toward consistent (eligible) codes
+    GENETIC_POP: 160,                // population size
+    GENETIC_GENERATIONS: 60,         // max generations per round
+    GENETIC_ELITE_FRAC: 0.25,        // fraction of the population carried over as elites
+    GENETIC_MUTATION: 0.2,           // per-free-slot mutation probability
+    GENETIC_MAX_ELIGIBLE: 60,        // stop early once this many distinct eligible codes are found
+    GENETIC_SELECT_CAP: 60,          // max eligible codes scored when choosing the guess
+    GENETIC_ENUM_CAP: 8000          // if the space is wider than this, defer the opening to Strategic
   };
 
   // ============================================================

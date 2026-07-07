@@ -555,6 +555,8 @@ select {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   padding: 16px 22px;
   border-bottom: 1px solid var(--border);
 }
@@ -678,6 +680,7 @@ select {
 
 .engine-switcher {
   display: flex;
+  flex-wrap: wrap;
   background: rgba(255, 255, 255, 0.04);
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -711,6 +714,76 @@ select {
   color: var(--text-tertiary);
   font-style: italic;
 }
+
+/* ---- Engine info ("book") button + comparison panel ---- */
+.engine-info-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+}
+.engine-info-btn:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+.engine-info-btn.active {
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+.engine-info-panel {
+  margin: 10px 22px 0;
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.engine-info-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.engine-info-row {
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.engine-info-row:hover { background: var(--surface-hover); border-color: var(--border-hover); }
+.engine-info-row.current { border-color: var(--border-focus); background: var(--accent-glow); }
+.engine-info-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.engine-info-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.engine-info-active {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-light);
+  border: 1px solid var(--border-focus);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.engine-info-pro,
+.engine-info-con {
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.engine-info-pro { color: #6ee7a8; }
+.engine-info-con { color: #fbbf24; }
 
 /* ---- Horizontal Guess Input ---- */
 
