@@ -20,6 +20,7 @@
   var ENGINE_HEURISTIC = Engine.ENGINE_HEURISTIC;
   var ENGINE_STRATEGIC = Engine.ENGINE_STRATEGIC;
   var ENGINE_MINIMAX = Engine.ENGINE_MINIMAX;
+  var ENGINE_ENTROPY = Engine.ENGINE_ENTROPY;
 
   // Pure APIs consumed by the UI
   var parseKey = Engine.parseKey;
@@ -518,8 +519,13 @@
               e('button', {
                 className: 'engine-opt' + (engine === ENGINE_MINIMAX ? ' active' : ''),
                 onClick: function () { onEngineChange(ENGINE_MINIMAX); },
-                title: 'Minimax: minimizes expected remaining answers via exact information gain (computer play)'
+                title: 'Minimax: game-tree search that minimizes the worst-case number of rounds (computer play)'
               }, '🤖 Minimax'),
+              e('button', {
+                className: 'engine-opt' + (engine === ENGINE_ENTROPY ? ' active' : ''),
+                onClick: function () { onEngineChange(ENGINE_ENTROPY); },
+                title: 'Entropy: picks the guess whose feedback yields the most information on average (Shannon entropy)'
+              }, '📊 Entropy'),
               e('button', {
                 className: 'engine-opt' + (engine === ENGINE_HEURISTIC ? ' active' : ''),
                 onClick: function () { onEngineChange(ENGINE_HEURISTIC); },
@@ -532,10 +538,12 @@
         // Engine description
         e('div', { className: 'engine-note' },
           engine === ENGINE_MINIMAX
-            ? '🤖 Minimax mode: when few answers remain it enumerates them and picks the guess that minimizes the expected number left (true information gain); falls back to Strategic early on.'
-            : engine === ENGINE_STRATEGIC
-              ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
-              : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
+            ? '🤖 Minimax mode: when few answers remain it searches the game tree and picks the guess that minimizes the worst-case rounds left (with pairing probes); falls back to Strategic early on.'
+            : engine === ENGINE_ENTROPY
+              ? '📊 Entropy mode: enumerates the remaining answers and picks the guess whose feedback splits them most evenly — maximum information on average; falls back to Strategic early on.'
+              : engine === ENGINE_STRATEGIC
+                ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
+                : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
         ),
 
         // Horizontal guess columns

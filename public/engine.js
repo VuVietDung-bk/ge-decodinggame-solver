@@ -16,4 +16,5 @@ var core = require('./engine-core.js');
 require('./engine-heuristic.js');
 require('./engine-strategic.js');
 require('./engine-minimax.js');
+require('./engine-entropy.js');
 module.exports = core;

@@ -19,10 +19,8 @@ function wrap(engineId) {
 const ENGINES = [
   { name: 'strategic', suggest: wrap(E.ENGINE_STRATEGIC) },
   { name: 'heuristic', suggest: wrap(E.ENGINE_HEURISTIC) },
-  { name: 'minimax', suggest: wrap(E.ENGINE_MINIMAX) }
-
-  // Example — plug a future algorithm in like this:
-  // { name: 'entropy', suggest: require('./algorithms/entropy.js') }
+  { name: 'minimax', suggest: wrap(E.ENGINE_MINIMAX) },
+  { name: 'entropy', suggest: wrap(E.ENGINE_ENTROPY) }
 ];
 
 // Select engines by name (case-insensitive); throws on unknown names.

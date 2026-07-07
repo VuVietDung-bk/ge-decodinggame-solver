@@ -16,72 +16,8 @@
   var TUNING = core.TUNING, parseKey = core.parseKey, firstGuess = core.firstGuess;
   var untestedCount = core.untestedCount, strategicSuggestion = core.strategicSuggestion;
   var hKey = core.hKey, getHybridName = core.getHybridName;
+  var feedbackSignature = core.feedbackSignature, enumerateAnswers = core.enumerateAnswers;
 
-
-  // Forward feedback oracle: the per-slot feedback signature a guess would get
-  // against a hypothetical answer. Priority: correct > wrongslot > partial > allwrong.
-  function feedbackSignature(guessKeys, answerKeys, answerSet, K) {
-    var sig = '';
-    for (var s = 0; s < K; s++) {
-      var gk = guessKeys[s];
-      if (gk === answerKeys[s]) { sig += 'C'; continue; }
-      if (answerSet.has(gk)) { sig += 'W'; continue; }
-      var gp = parseKey(gk), ap = parseKey(answerKeys[s]);
-      if (gp[0] === ap[0] || gp[0] === ap[1] || gp[1] === ap[0] || gp[1] === ap[1]) sig += 'P';
-      else sig += 'A';
-    }
-    return sig;
-  }
-
-  // Enumerate every full answer consistent with the current state:
-  // one distinct hybrid per slot drawn from possible[], covering every
-  // mustInclude hybrid. Returns null if it exceeds cap/node budget.
-  function enumerateAnswers(state, K, cap, nodeCap) {
-    var order = [];
-    for (var s = 0; s < K; s++) order.push(s);
-    order.sort(function (a, b) { return state.possible[a].size - state.possible[b].size; });
-
-    var possArr = new Array(K);
-    for (var i = 0; i < K; i++) possArr[i] = Array.from(state.possible[order[i]]);
-    var must = Array.from(state.mustInclude);
-
-    var answers = [];
-    var used = new Set();
-    var answer = new Array(K).fill(null);
-    var nodes = 0;
-    var aborted = false;
-
-    function rec(idx) {
-      if (aborted) return;
-      if (++nodes > nodeCap) { aborted = true; return; }
-      if (idx === K) {
-        for (var m = 0; m < must.length; m++) if (!used.has(must[m])) return;
-        answers.push(answer.slice());
-        if (answers.length > cap) aborted = true;
-        return;
-      }
-      // Coverage prune: unplaced mustInclude cannot exceed remaining slots.
-      var need = 0;
-      for (var mm = 0; mm < must.length; mm++) if (!used.has(must[mm])) need++;
-      if (need > K - idx) return;
-
-      var slot = order[idx];
-      var opts = possArr[idx];
-      for (var o = 0; o < opts.length; o++) {
-        var key = opts[o];
-        if (used.has(key)) continue;
-        answer[slot] = key;
-        used.add(key);
-        rec(idx + 1);
-        used.delete(key);
-        if (aborted) return;
-      }
-      answer[slot] = null;
-    }
-
-    rec(0);
-    return aborted ? null : answers;
-  }
 
   // Deliberately-wrong probes: at slots whose answer we already know but the
   // game has not locked, substitute the freshest (most-untested) unused hybrids.
@@ -464,8 +400,6 @@
   }
 
   core.minimaxSuggestion = minimaxSuggestion;
-  core.feedbackSignature = feedbackSignature;
-  core.enumerateAnswers = enumerateAnswers;
   core.buildProbes = buildProbes;
   core._registerEngine(core.ENGINE_MINIMAX, minimaxSuggestion);
   return { minimaxSuggestion: minimaxSuggestion };

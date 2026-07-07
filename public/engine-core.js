@@ -114,7 +114,13 @@
     MINIMAX_ENDGAME_CAP: 46,         // max candidates for the exact single-slot endgame minimax
     MINIMAX_ENDGAME_SOLVER: true,    // all-locked single-slot: exact Knuth minimax (pairing beats linear scan)
     MINIMAX_ALLSTEP_PROBES: true,    // every round: add pairing probes to the minimax pool (lowers the mean)
-    MINIMAX_PAIR_CAP: 24             // max pairing probes added per round
+    MINIMAX_PAIR_CAP: 24,            // max pairing probes added per round
+
+    // Entropy engine — maximize expected information (Shannon) of the feedback
+    ENTROPY_ENUM_CAP: 2000,          // max #answers to enumerate before falling back to strategic
+    ENTROPY_NODE_CAP: 200000,        // enumeration node budget before fallback
+    ENTROPY_GUESS_CAP: 500,          // max candidate guesses scored per round
+    ENTROPY_SCORE_CAP: 300           // max answers sampled to estimate each guess's entropy
   };
 
   // ============================================================
@@ -336,6 +342,77 @@
   var ENGINE_MINIMAX = 'minimax';
 
   // ============================================================
+  // SHARED SEARCH PRIMITIVES (used by any answer-set engine:
+  // minimax, entropy, ...). Kept in the core so engines don't
+  // depend on one another for these.
+  // ============================================================
+
+  // Forward feedback oracle: the per-slot feedback signature a guess would get
+  // against a hypothetical answer. Priority: correct > wrongslot > partial > allwrong.
+  function feedbackSignature(guessKeys, answerKeys, answerSet, K) {
+    var sig = '';
+    for (var s = 0; s < K; s++) {
+      var gk = guessKeys[s];
+      if (gk === answerKeys[s]) { sig += 'C'; continue; }
+      if (answerSet.has(gk)) { sig += 'W'; continue; }
+      var gp = parseKey(gk), ap = parseKey(answerKeys[s]);
+      if (gp[0] === ap[0] || gp[0] === ap[1] || gp[1] === ap[0] || gp[1] === ap[1]) sig += 'P';
+      else sig += 'A';
+    }
+    return sig;
+  }
+
+  // Enumerate every full answer consistent with the current state:
+  // one distinct hybrid per slot drawn from possible[], covering every
+  // mustInclude hybrid. Returns null if it exceeds cap/node budget.
+  function enumerateAnswers(state, K, cap, nodeCap) {
+    var order = [];
+    for (var s = 0; s < K; s++) order.push(s);
+    order.sort(function (a, b) { return state.possible[a].size - state.possible[b].size; });
+
+    var possArr = new Array(K);
+    for (var i = 0; i < K; i++) possArr[i] = Array.from(state.possible[order[i]]);
+    var must = Array.from(state.mustInclude);
+
+    var answers = [];
+    var used = new Set();
+    var answer = new Array(K).fill(null);
+    var nodes = 0;
+    var aborted = false;
+
+    function rec(idx) {
+      if (aborted) return;
+      if (++nodes > nodeCap) { aborted = true; return; }
+      if (idx === K) {
+        for (var m = 0; m < must.length; m++) if (!used.has(must[m])) return;
+        answers.push(answer.slice());
+        if (answers.length > cap) aborted = true;
+        return;
+      }
+      // Coverage prune: unplaced mustInclude cannot exceed remaining slots.
+      var need = 0;
+      for (var mm = 0; mm < must.length; mm++) if (!used.has(must[mm])) need++;
+      if (need > K - idx) return;
+
+      var slot = order[idx];
+      var opts = possArr[idx];
+      for (var o = 0; o < opts.length; o++) {
+        var key = opts[o];
+        if (used.has(key)) continue;
+        answer[slot] = key;
+        used.add(key);
+        rec(idx + 1);
+        used.delete(key);
+        if (aborted) return;
+      }
+      answer[slot] = null;
+    }
+
+    rec(0);
+    return aborted ? null : answers;
+  }
+
+  // ============================================================
   // PERSISTENCE
   // ============================================================
 
@@ -451,6 +528,8 @@
     _engines: _engines,
     firstGuess: firstGuess,
     untestedCount: untestedCount,
+    feedbackSignature: feedbackSignature,
+    enumerateAnswers: enumerateAnswers,
 
     // Persistence
     serializeState: serializeState,
