@@ -8,7 +8,7 @@
       "0_3"
     ],
     "solved": true,
-    "rounds": 4,
+    "rounds": 3,
     "transcript": [
       {
         "guess": [
@@ -27,29 +27,15 @@
       {
         "guess": [
           "4_4",
+          "2_4",
           "1_1",
-          "3_4",
-          "2_4"
+          "3_4"
         ],
         "feedback": [
           "allwrong",
-          "allwrong",
-          "wrongslot",
-          "allwrong"
-        ]
-      },
-      {
-        "guess": [
-          "3_3",
-          "3_4",
-          "0_1",
-          "0_0"
-        ],
-        "feedback": [
-          "correct",
-          "correct",
-          "correct",
-          "partial"
+          "partial",
+          "partial",
+          "wrongslot"
         ]
       },
       {
@@ -441,7 +427,7 @@
           "2_5",
           "5_6",
           "2_3",
-          "1_2"
+          "6_6"
         ],
         "feedback": [
           "wrongslot",
@@ -449,7 +435,7 @@
           "allwrong",
           "wrongslot",
           "partial",
-          "allwrong"
+          "partial"
         ]
       },
       {
@@ -459,7 +445,7 @@
           "0_6",
           "0_3",
           "3_4",
-          "6_6"
+          "1_4"
         ],
         "feedback": [
           "correct",
@@ -467,7 +453,7 @@
           "allwrong",
           "allwrong",
           "allwrong",
-          "partial"
+          "allwrong"
         ]
       },
       {
@@ -535,7 +521,7 @@
       "3_9"
     ],
     "solved": true,
-    "rounds": 6,
+    "rounds": 5,
     "transcript": [
       {
         "guess": [
@@ -567,43 +553,29 @@
       },
       {
         "guess": [
-          "1_8",
-          "0_1",
-          "1_2",
-          "4_6"
+          "1_6",
+          "6_8",
+          "1_4",
+          "0_1"
         ],
         "feedback": [
+          "correct",
           "partial",
-          "allwrong",
-          "partial",
-          "allwrong"
-        ]
-      },
-      {
-        "guess": [
-          "1_5",
-          "3_8",
-          "1_7",
-          "1_2"
-        ],
-        "feedback": [
-          "partial",
-          "allwrong",
           "allwrong",
           "allwrong"
         ]
       },
       {
         "guess": [
-          "3_7",
-          "0_5",
-          "0_7",
-          "0_3"
+          "1_6",
+          "5_6",
+          "2_8",
+          "2_9"
         ],
         "feedback": [
-          "allwrong",
-          "allwrong",
-          "allwrong",
+          "correct",
+          "partial",
+          "correct",
           "partial"
         ]
       },
@@ -635,7 +607,7 @@
       "6_6"
     ],
     "solved": true,
-    "rounds": 5,
+    "rounds": 4,
     "transcript": [
       {
         "guess": [
@@ -659,7 +631,7 @@
       },
       {
         "guess": [
-          "0_5",
+          "2_2",
           "1_7",
           "4_7",
           "1_5",
@@ -668,7 +640,7 @@
           "2_4"
         ],
         "feedback": [
-          "allwrong",
+          "partial",
           "allwrong",
           "partial",
           "partial",
@@ -679,42 +651,22 @@
       },
       {
         "guess": [
-          "1_6",
-          "2_3",
-          "0_6",
-          "0_1",
           "0_5",
           "0_2",
+          "0_6",
+          "5_5",
+          "0_0",
+          "2_3",
           "5_6"
         ],
         "feedback": [
-          "partial",
-          "allwrong",
-          "allwrong",
           "allwrong",
           "partial",
           "allwrong",
+          "correct",
+          "wrongslot",
+          "partial",
           "partial"
-        ]
-      },
-      {
-        "guess": [
-          "3_4",
-          "4_6",
-          "0_3",
-          "4_4",
-          "3_7",
-          "3_6",
-          "7_7"
-        ],
-        "feedback": [
-          "wrongslot",
-          "allwrong",
-          "partial",
-          "allwrong",
-          "wrongslot",
-          "partial",
-          "allwrong"
         ]
       },
       {
@@ -739,8 +691,8 @@
       }
     ]
   },
-  "opt-p5-k4-s1": {
-    "id": "opt-p5-k4-s1",
+  "mm-p5-k4-s1": {
+    "id": "mm-p5-k4-s1",
     "secret": [
       "3_3",
       "3_4",
@@ -767,28 +719,28 @@
       {
         "guess": [
           "4_4",
+          "2_4",
           "1_1",
-          "3_4",
-          "2_4"
+          "3_4"
         ],
         "feedback": [
           "allwrong",
-          "allwrong",
-          "wrongslot",
-          "allwrong"
+          "partial",
+          "partial",
+          "wrongslot"
         ]
       },
       {
         "guess": [
-          "3_3",
-          "3_4",
-          "0_1",
+          "0_3",
+          "1_2",
+          "2_3",
           "0_0"
         ],
         "feedback": [
-          "correct",
-          "correct",
-          "correct",
+          "wrongslot",
+          "allwrong",
+          "allwrong",
           "partial"
         ]
       },
@@ -808,8 +760,8 @@
       }
     ]
   },
-  "opt-p4-k3-s7": {
-    "id": "opt-p4-k3-s7",
+  "mm-p4-k3-s7": {
+    "id": "mm-p4-k3-s7",
     "secret": [
       "1_2",
       "2_3",
@@ -832,26 +784,26 @@
       },
       {
         "guess": [
+          "1_2",
           "0_2",
-          "0_3",
-          "1_2"
+          "0_0"
         ],
         "feedback": [
+          "correct",
           "partial",
-          "wrongslot",
-          "wrongslot"
+          "partial"
         ]
       },
       {
         "guess": [
-          "2_3",
-          "0_0",
-          "1_1"
+          "1_2",
+          "2_2",
+          "0_3"
         ],
         "feedback": [
-          "wrongslot",
-          "allwrong",
-          "allwrong"
+          "correct",
+          "partial",
+          "correct"
         ]
       },
       {
@@ -868,8 +820,8 @@
       }
     ]
   },
-  "opt-p6-k5-s3": {
-    "id": "opt-p6-k5-s3",
+  "mm-p6-k5-s3": {
+    "id": "mm-p6-k5-s3",
     "secret": [
       "2_3",
       "1_4",
@@ -915,16 +867,16 @@
       {
         "guess": [
           "2_3",
-          "0_2",
-          "1_4",
           "0_1",
+          "1_4",
+          "3_4",
           "0_0"
         ],
         "feedback": [
           "correct",
-          "allwrong",
+          "partial",
           "wrongslot",
-          "allwrong",
+          "correct",
           "partial"
         ]
       },
@@ -946,8 +898,8 @@
       }
     ]
   },
-  "opt-p7-k6-s9": {
-    "id": "opt-p7-k6-s9",
+  "mm-p7-k6-s9": {
+    "id": "mm-p7-k6-s9",
     "secret": [
       "3_3",
       "0_0",
@@ -984,7 +936,7 @@
           "2_5",
           "5_6",
           "2_3",
-          "1_2"
+          "6_6"
         ],
         "feedback": [
           "wrongslot",
@@ -992,7 +944,7 @@
           "allwrong",
           "wrongslot",
           "partial",
-          "allwrong"
+          "partial"
         ]
       },
       {
@@ -1002,7 +954,7 @@
           "0_6",
           "0_3",
           "3_4",
-          "6_6"
+          "1_4"
         ],
         "feedback": [
           "correct",
@@ -1010,7 +962,7 @@
           "allwrong",
           "allwrong",
           "allwrong",
-          "partial"
+          "allwrong"
         ]
       },
       {

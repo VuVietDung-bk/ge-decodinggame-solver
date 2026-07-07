@@ -49,9 +49,9 @@ suite('randomized: heuristic engine self-play', function () {
   });
 });
 
-suite('randomized: optimal engine self-play', function () {
+suite('randomized: minimax engine self-play', function () {
   test('120 random games all solve within bound + invariants hold', function () {
-    const r = sweep(E.ENGINE_OPTIMAL, 6000, 120);
+    const r = sweep(E.ENGINE_MINIMAX, 6000, 120);
     assert.strictEqual(r.solved, 120);
     assert.ok(r.maxRounds <= SOLVE_BOUND);
   });

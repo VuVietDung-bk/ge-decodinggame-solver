@@ -15,7 +15,7 @@ function snapshot(seed) {
     const cfg = H.randomConfig();
     const secret = H.randomSecret(cfg);
     const rr = Math.random();
-    const engine = rr < 0.34 ? E.ENGINE_STRATEGIC : rr < 0.67 ? E.ENGINE_HEURISTIC : E.ENGINE_OPTIMAL;
+    const engine = rr < 0.34 ? E.ENGINE_STRATEGIC : rr < 0.67 ? E.ENGINE_HEURISTIC : E.ENGINE_MINIMAX;
     const K = cfg.codeLength;
     const vh = E.getValidHybrids(cfg.selectedPlants);
     let st = E.createSolverState(vh, K);
@@ -77,7 +77,7 @@ suite('property: suggestion determinism (non-first)', function () {
   test('generateSuggestion is deterministic for both engines (100 cases)', function () {
     for (let seed = 1; seed <= 100; seed++) {
       const s = snapshot(seed);
-      for (const engine of [E.ENGINE_STRATEGIC, E.ENGINE_HEURISTIC, E.ENGINE_OPTIMAL]) {
+      for (const engine of [E.ENGINE_STRATEGIC, E.ENGINE_HEURISTIC, E.ENGINE_MINIMAX]) {
         const a = E.generateSuggestion(s.st, s.vh, s.K, false, s.cfg.selectedPlants, engine);
         const b = E.generateSuggestion(s.st, s.vh, s.K, false, s.cfg.selectedPlants, engine);
         assert.deepStrictEqual(a, b, 'seed ' + seed + ' engine ' + engine + ': non-deterministic');
@@ -93,7 +93,7 @@ suite('property: confirmed/gameLocked are monotonic over a game', function () {
         const cfg = H.randomConfig();
         const secret = H.randomSecret(cfg);
         const rr = Math.random();
-        const engine = rr < 0.34 ? E.ENGINE_STRATEGIC : rr < 0.67 ? E.ENGINE_HEURISTIC : E.ENGINE_OPTIMAL;
+        const engine = rr < 0.34 ? E.ENGINE_STRATEGIC : rr < 0.67 ? E.ENGINE_HEURISTIC : E.ENGINE_MINIMAX;
         const K = cfg.codeLength;
         const vh = E.getValidHybrids(cfg.selectedPlants);
         let st = E.createSolverState(vh, K);

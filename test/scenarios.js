@@ -15,10 +15,10 @@ const SCENARIOS = [
   { id: 'heur-p3-k3-s42',  plantCount: 3,  codeLength: 3, engine: 'heuristic', seed: 42 },
   { id: 'strat-p10-k4-s5', plantCount: 10, codeLength: 4, engine: 'strategic', seed: 5 },
   { id: 'strat-p8-k7-s11', plantCount: 8,  codeLength: 7, engine: 'strategic', seed: 11 },
-  { id: 'opt-p5-k4-s1',    plantCount: 5,  codeLength: 4, engine: 'optimal', seed: 1 },
-  { id: 'opt-p4-k3-s7',    plantCount: 4,  codeLength: 3, engine: 'optimal', seed: 7 },
-  { id: 'opt-p6-k5-s3',    plantCount: 6,  codeLength: 5, engine: 'optimal', seed: 3 },
-  { id: 'opt-p7-k6-s9',    plantCount: 7,  codeLength: 6, engine: 'optimal', seed: 9 }
+  { id: 'mm-p5-k4-s1',    plantCount: 5,  codeLength: 4, engine: 'minimax', seed: 1 },
+  { id: 'mm-p4-k3-s7',    plantCount: 4,  codeLength: 3, engine: 'minimax', seed: 7 },
+  { id: 'mm-p6-k5-s3',    plantCount: 6,  codeLength: 5, engine: 'minimax', seed: 3 },
+  { id: 'mm-p7-k6-s9',    plantCount: 7,  codeLength: 6, engine: 'minimax', seed: 9 }
 ];
 
 // Deterministically play one scenario. The seed drives BOTH the secret

@@ -61,7 +61,7 @@ suite('invariants: randomized sweep (mid-game states)', function () {
         const cfg = H.randomConfig();
         const secret = H.randomSecret(cfg);
         const r = Math.random();
-        const engine = r < 0.34 ? E.ENGINE_STRATEGIC : r < 0.67 ? E.ENGINE_HEURISTIC : E.ENGINE_OPTIMAL;
+        const engine = r < 0.34 ? E.ENGINE_STRATEGIC : r < 0.67 ? E.ENGINE_HEURISTIC : E.ENGINE_MINIMAX;
         // playGame with check:true asserts invariants after every round
         H.playGame(cfg, secret, engine, 40, { check: true });
         checked++;

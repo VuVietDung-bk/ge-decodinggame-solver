@@ -190,7 +190,7 @@ suite('unit: strategic scoring helpers', function () {
   });
 });
 
-suite('unit: optimal engine core', function () {
+suite('unit: minimax engine core', function () {
   const vh = E.getValidHybrids([0, 1, 2, 3, 4]);
 
   test('enumerateAnswers lists all consistent answers of a fresh state', function () {
@@ -244,11 +244,11 @@ suite('unit: optimal engine core', function () {
     assert.strictEqual(E.feedbackSignature(['4_4', '2_3', '0_2', '3_4'], answer, aset, 4)[0], 'A');
   });
 
-  test('optimalSuggestion returns a complete valid guess', function () {
+  test('minimaxSuggestion returns a complete valid guess', function () {
     let st = E.createSolverState(vh, 4);
     st = E.applyFeedback(st, [{ p1: 0, p2: 1 }, { p1: 2, p2: 3 }, { p1: 0, p2: 2 }, { p1: 1, p2: 3 }],
       ['correct', 'wrongslot', 'partial', 'allwrong']);
-    const sug = E.generateSuggestion(st, vh, 4, false, [0, 1, 2, 3, 4], E.ENGINE_OPTIMAL);
+    const sug = E.generateSuggestion(st, vh, 4, false, [0, 1, 2, 3, 4], E.ENGINE_MINIMAX);
     assert.strictEqual(sug.length, 4);
     for (let s = 0; s < 4; s++) {
       const pk = E.parseKey(sug[s]);

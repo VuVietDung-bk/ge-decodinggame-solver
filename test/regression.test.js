@@ -32,8 +32,8 @@ suite('regression: fixed applyFeedback snapshot', function () {
     const strat = E.generateSuggestion(st, vh, 4, false, [0, 1, 2, 3, 4], E.ENGINE_STRATEGIC);
     const heur = E.generateSuggestion(st, vh, 4, false, [0, 1, 2, 3, 4], E.ENGINE_HEURISTIC);
     // This fixture's feedback is inconsistent (mustInclude 1_2 is unplaceable),
-    // so the optimal engine finds 0 consistent answers and falls back to strategic.
-    const opt = E.generateSuggestion(st, vh, 4, false, [0, 1, 2, 3, 4], E.ENGINE_OPTIMAL);
+    // so the minimax engine finds 0 consistent answers and falls back to strategic.
+    const opt = E.generateSuggestion(st, vh, 4, false, [0, 1, 2, 3, 4], E.ENGINE_MINIMAX);
     assert.deepStrictEqual(strat, ['0_1', '1_1', '4_4', '1_4']);
     assert.deepStrictEqual(heur, ['0_1', '1_4', '0_2', '0_3']);
     assert.deepStrictEqual(opt, ['0_1', '1_1', '4_4', '1_4']);

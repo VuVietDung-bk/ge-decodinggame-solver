@@ -4,9 +4,10 @@
   // ============================================================
   // ENGINE BINDINGS
   // ------------------------------------------------------------
-  // The solver engine now lives in the standalone `engine.js`
-  // module (exposed as `window.DecodeEngine`). The UI below only
-  // consumes these exported APIs — it contains no solver logic.
+  // The solver engine lives in standalone modules: engine-core.js plus one
+  // file per engine (engine-heuristic/strategic/minimax.js), which all augment
+  // the shared `window.DecodeEngine`. The UI below only consumes these exported
+  // APIs — it contains no solver logic.
   // ============================================================
   var Engine = (typeof window !== 'undefined' && window.DecodeEngine) ||
     (typeof module === 'object' && module.exports ? require('./engine.js') : null);
@@ -18,7 +19,7 @@
   var FEEDBACK_TYPES = Engine.FEEDBACK_TYPES;
   var ENGINE_HEURISTIC = Engine.ENGINE_HEURISTIC;
   var ENGINE_STRATEGIC = Engine.ENGINE_STRATEGIC;
-  var ENGINE_OPTIMAL = Engine.ENGINE_OPTIMAL;
+  var ENGINE_MINIMAX = Engine.ENGINE_MINIMAX;
 
   // Pure APIs consumed by the UI
   var parseKey = Engine.parseKey;
@@ -515,10 +516,10 @@
                 title: 'Strategic: maximizes information, avoids placing known answers prematurely'
               }, '🧠 Strategic'),
               e('button', {
-                className: 'engine-opt' + (engine === ENGINE_OPTIMAL ? ' active' : ''),
-                onClick: function () { onEngineChange(ENGINE_OPTIMAL); },
-                title: 'Optimal: minimizes expected remaining answers via exact information gain (computer play)'
-              }, '🤖 Optimal'),
+                className: 'engine-opt' + (engine === ENGINE_MINIMAX ? ' active' : ''),
+                onClick: function () { onEngineChange(ENGINE_MINIMAX); },
+                title: 'Minimax: minimizes expected remaining answers via exact information gain (computer play)'
+              }, '🤖 Minimax'),
               e('button', {
                 className: 'engine-opt' + (engine === ENGINE_HEURISTIC ? ' active' : ''),
                 onClick: function () { onEngineChange(ENGINE_HEURISTIC); },
@@ -530,8 +531,8 @@
 
         // Engine description
         e('div', { className: 'engine-note' },
-          engine === ENGINE_OPTIMAL
-            ? '🤖 Optimal mode: when few answers remain it enumerates them and picks the guess that minimizes the expected number left (true information gain); falls back to Strategic early on.'
+          engine === ENGINE_MINIMAX
+            ? '🤖 Minimax mode: when few answers remain it enumerates them and picks the guess that minimizes the expected number left (true information gain); falls back to Strategic early on.'
             : engine === ENGINE_STRATEGIC
               ? '💡 Strategic mode: gathers info first, avoids placing known answers until confident. Correctly-solved slots are locked by the game.'
               : '⚡ Heuristic mode: greedily picks from remaining possibilities for each slot.'
